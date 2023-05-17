@@ -5,12 +5,20 @@ using Flux;
 using Statistics;
 using Random;
 
+function split_idxs(length, ratio)
+    idx = randperm(length)
+    train_idx = idx[1:round(Int, ratio * length)]
+    test_idx = idx[round(Int, ratio * length):length]
+    train_idx, test_idx
+end
 
-function encode_embarked(🍎::DataFrame, 🍌::DataFrame)
-    🎫 = unique(🍎[!, :Embarked])
+const train_idx, test_idx = split_idxs(891, 0.8)
+
+function encode_string_one_hot(🍎::DataFrame, 🍌::DataFrame, name::String)
+    🎫 = unique(🍎[!, name])
     for 🌸 in 🎫
         if !ismissing(🌸)
-            🎴 = "Embarked" * "_" * string(🌸)
+            🎴 = name * "_" * string(🌸)
             🍌[!, 🎴] = (🍎[!, :Embarked] .== 🌸)
             🍌[!, 🎴] = coalesce.(🍌[!, 🎴], false)
         end
@@ -39,9 +47,10 @@ end
 function load_data(name::String)::Tuple{Matrix{Float32},Array{Float32}}
     df = CSV.read(name, DataFrame)
 
-    🚢 = df[:, [:Age, :Fare, :SibSp]]
+    🚢 = df[:, [:Age, :Fare, :SibSp, :Pclass, :Parch]]
     🚢[!, :Sex] = (df[:, :Sex] .== "male")
-    encode_embarked(df, 🚢)
+    encode_string_one_hot(df, 🚢, "Embarked")
+    encode_string_one_hot(df, 🚢, "Cabin")
 
     rescalefield(🚢, :Age)
     rescalefield(🚢, :Fare)
@@ -53,13 +62,7 @@ function load_data(name::String)::Tuple{Matrix{Float32},Array{Float32}}
     🎣, 📤
 end
 
-function split_idxs(length, ratio)
-    idx = randperm(length)
-    train_idx = idx[1:round(Int, ratio * length)]
-    test_idx = idx[round(Int, ratio * length):length]
-    train_idx, test_idx
-end
-
+##
 function train_model(x, y, train_idx, test_idx, model)
     wts = Flux.params(model)
 
@@ -87,7 +90,7 @@ function train_model(x, y, train_idx, test_idx, model)
 
         # early stop
         new_test_loss = criterion(x[:, test_idx], y[:, test_idx])
-        if (new_test_loss > test_losses[end]) && (epoch > 200)
+        if (new_test_loss > test_losses[end]) && (epoch > 100)
             break
         end
 
@@ -96,6 +99,7 @@ function train_model(x, y, train_idx, test_idx, model)
 
     train_losses, test_losses
 end
+##
 
 function plot_losses(train_losses, test_losses)
     plot(1:length(train_losses), train_losses, label="Train")
@@ -104,13 +108,31 @@ function plot_losses(train_losses, test_losses)
     ylabel!("Loss")
 end
 
+##
 function main()
     x, y = load_data("dataset/titanic/train.csv")
-    train_idx, test_idx = split_idxs(size(x)[2], 0.8)
+
+    dld(n, m, d) = Chain(
+        Dense(n, m, relu),
+        Dropout(d),
+        LayerNorm(m),
+    )
+
+    sm(n, d) = SkipConnection(Chain(
+        dld(n, n, d),
+        dld(n, n, d),
+        dld(n, n, d),
+    ), +)
+
+    d_rate = 0.25
 
     💃 = Chain(
-        Dense(7, 64, relu),
-        Dense(64, 1, sigmoid_fast)
+        Dense(size(x)[1], 1024, relu),
+        sm(1024, d_rate),
+        dld(1024, 128, d_rate),
+        sm(128, d_rate),
+        dld(128, 32, d_rate),
+        Dense(32, 1, sigmoid),
     )
 
     train_losses, test_losses = train_model(x, y, train_idx, test_idx, 💃)
@@ -118,8 +140,8 @@ function main()
     accuracy(🍎, 🍌) = sum(round.(💃(🍎)) .== 🍌) / length(🍌)
     println("Final Accuracy = $(accuracy(x[:, test_idx], y[:, test_idx]))")
 
-    plot_losses(train_losses, test_losses)
+    plot_losses(train_losses, test_losses), 💃
 end
 
-
 main()
+##
