@@ -5,6 +5,7 @@ from multiprocessing import Pool
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(ROOT, 'data', 'training_set')
+HEADER = 'Id,Rating,Date\n'
 
 
 def transform_data(file):
@@ -16,7 +17,7 @@ def transform_data(file):
 
     new_file_path = os.path.join(DATA_DIR, f'{id}.csv')
     with open(new_file_path, 'w') as fout:
-        fout.writelines(data[1:])
+        fout.writelines([HEADER] + data[1:])
 
     os.remove(file_path)
 
