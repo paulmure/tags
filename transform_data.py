@@ -5,7 +5,7 @@ from multiprocessing import Pool
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(ROOT, 'data', 'training_set')
-HEADER = 'Id,Rating,Date\n'
+HEADER = 'User,Rating,Date\n'
 
 
 def transform_data(file):
