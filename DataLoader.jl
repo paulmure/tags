@@ -4,6 +4,7 @@ export load_data, NNZ
 
 using CSV
 using DataFrames
+using DataStructures
 
 const data_dir::String = joinpath(@__DIR__, "data", "training_set")
 
@@ -28,28 +29,27 @@ function tidy_indices!(df::DataFrame)
 end
 
 struct NNZ
-    user::Dict{Int,Int}
-    movie::Dict{Int,Int}
+    user::DefaultDict{Int,Int}
+    movie::DefaultDict{Int,Int}
 end
 
 function build_nnz(df::DataFrame)::NNZ
-    count(field) = Dict(id => size(df[df[!, field], :])[1] for id in unique(df[!, field]))
-    NNZ(count(:User), count(:Movie))
+    nnz::NNZ = NNZ(DefaultDict{Int,Int}(0), DefaultDict{Int,Int}(0))
+    for row in eachrow(df)
+        nnz.user[row.User] += 1
+        nnz.movie[row.Movie] += 1
+    end
+    nnz
 end
 
-function load_data(nrows::Int)::DataFrame
+function load_data(nrows::Int)::Tuple{DataFrame,NNZ}
     files::Vector{String} = readdir(data_dir)[1:nrows]
     movies::Vector{DataFrame} = map(load_movie, files)
     df = reduce((x, y) -> outerjoin(x, y, on=[:User, :Movie, :Rating]), movies)
     select!(df, :User, :Movie, :Rating)
     tidy_indices!(df)
-    # nnz = build_nnz(df)
-    df
+    nnz = build_nnz(df)
+    df, nnz
 end
-
-data = load_data(32);
-size(data)
-
-@time length(build_nnz(data).user)
 
 end
