@@ -1,10 +1,11 @@
 module DataLoader
 
-export load_data, NNZ
+export load_netflix_data, MatrixData, NNZ
 
 using CSV
 using DataFrames
 using DataStructures
+using SparseArrays
 
 const data_dir::String = joinpath(@__DIR__, "data", "training_set")
 
@@ -29,27 +30,46 @@ function tidy_indices!(df::DataFrame)
 end
 
 struct NNZ
-    user::DefaultDict{Int,Int}
-    movie::DefaultDict{Int,Int}
+    row::DefaultDict{Int,Int}
+    col::DefaultDict{Int,Int}
 end
 
-function build_nnz(df::DataFrame)::NNZ
+struct MatrixData{T}
+    data::SparseMatrixCSC{T,Int}
+    nnz::NNZ
+    nrows::Int
+    ncols::Int
+end
+
+function build_nnz(df::DataFrame, row_name::Symbol, col_name::Symbol)::NNZ
     nnz::NNZ = NNZ(DefaultDict{Int,Int}(0), DefaultDict{Int,Int}(0))
     for row in eachrow(df)
-        nnz.user[row.User] += 1
-        nnz.movie[row.Movie] += 1
+        nnz.row[row[row_name]] += 1
+        nnz.col[row[col_name]] += 1
     end
     nnz
 end
 
-function load_data(nrows::Int)::Tuple{DataFrame,NNZ}
-    files::Vector{String} = readdir(data_dir)[1:nrows]
+function build_sparse_matrix(df::DataFrame,
+    nrows, ncols,
+    row_name::Symbol, col_name::Symbol,
+    val_name::Symbol)::SparseMatrixCSC{Float32,Int}
+    mat = spzeros(nrows, ncols)
+    for row in eachrow(df)
+        mat[row[row_name], row[col_name]] = convert(Float32, row[val_name])
+    end
+    mat
+end
+
+function load_netflix_data(nmovies::Int)::MatrixData{Float32}
+    files::Vector{String} = readdir(data_dir)[1:nmovies]
     movies::Vector{DataFrame} = map(load_movie, files)
     df = reduce((x, y) -> outerjoin(x, y, on=[:User, :Movie, :Rating]), movies)
-    select!(df, :User, :Movie, :Rating)
     tidy_indices!(df)
-    nnz = build_nnz(df)
-    df, nnz
+    nnz = build_nnz(df, :User, :Movie)
+    nusers = length(unique(df.User))
+    mat = build_sparse_matrix(df, nusers, nmovies, :User, :Movie, :Rating)
+    MatrixData{Float32}(mat, nnz, nusers, nmovies)
 end
 
 end
