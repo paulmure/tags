@@ -6,4 +6,4 @@ mv download/ data/
 rm nf_prize_dataset.tar.gz
 
 tar -xvf data/training_set.tar -C data
-./transform_data.py
+./scripts/transform_data.py
