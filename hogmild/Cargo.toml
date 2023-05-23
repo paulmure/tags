@@ -1,0 +1,17 @@
+[package]
+name = "hogmild"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.3.0", features = ["derive"] }
+once_cell = "1.17.1"
+polars = { version = "0.29.0", features = ["lazy"] }
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
