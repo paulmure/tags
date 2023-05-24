@@ -11,7 +11,7 @@ pub struct SparseMatrix<Idx, E> {
     n_row: Idx,
     n_col: Idx,
     /// `entries[(u, v)]` = revealed entry of the matrix at (`u`, `v`)
-    entries: HashMap<(Idx, Idx), E>,
+    pub entries: HashMap<(Idx, Idx), E>,
     /// `nnz_row[u]` = number of non-zeros in row `u`
     nnz_row: HashMap<Idx, Idx>,
     /// `nnz_col[m]` = number of non-zeros in col `u`
@@ -64,11 +64,12 @@ pub mod netflix {
     use std::io::{BufRead, BufReader};
     use std::path::{Path, PathBuf};
 
-    type NetflixMatrix = SparseMatrix<u32, u8>;
+    type nfidx = usize;
+    pub type NetflixMatrix = SparseMatrix<nfidx, f32>;
 
     pub struct IdMapping {
-        user_to_row: HashMap<u32, u32>,
-        movie_to_col: HashMap<u32, u32>,
+        user_to_row: HashMap<nfidx, nfidx>,
+        movie_to_col: HashMap<nfidx, nfidx>,
     }
 
     impl IdMapping {
@@ -79,11 +80,11 @@ pub mod netflix {
             }
         }
 
-        pub fn user_to_row(&self, user: u32) -> u32 {
+        pub fn user_to_row(&self, user: nfidx) -> nfidx {
             *self.user_to_row.get(&user).unwrap()
         }
 
-        pub fn movie_to_col(&self, movie: u32) -> u32 {
+        pub fn movie_to_col(&self, movie: nfidx) -> nfidx {
             *self.movie_to_col.get(&movie).unwrap()
         }
     }
@@ -97,7 +98,7 @@ pub mod netflix {
         base_dir
     }
 
-    fn parse_movie_id(path: &Path) -> u32 {
+    fn parse_movie_id(path: &Path) -> nfidx {
         let file_name = path.file_stem().unwrap().to_str().unwrap();
         file_name.parse().unwrap()
     }
@@ -106,8 +107,8 @@ pub mod netflix {
         dir_entry: DirEntry,
         m: &mut NetflixMatrix,
         im: &mut IdMapping,
-        next_row: &mut u32,
-        next_col: &mut u32,
+        next_row: &mut nfidx,
+        next_col: &mut nfidx,
     ) {
         let path = dir_entry.path();
         let movie_id = parse_movie_id(&path);
@@ -123,10 +124,11 @@ pub mod netflix {
             let line = res_line.unwrap();
             let mut toks = line.split(',');
 
-            let user_id: u32 = toks.next().unwrap().parse().unwrap();
-            let rating: u8 = toks.next().unwrap().parse().unwrap();
+            let user_id: nfidx = toks.next().unwrap().parse().unwrap();
+            let rating: f32 = toks.next().unwrap().parse().unwrap();
+            let rating_norm: f32 = (rating / 2.5) - 1.;
 
-            let row: u32 = match im.user_to_row.entry(user_id) {
+            let row: nfidx = match im.user_to_row.entry(user_id) {
                 Entry::Occupied(o) => *o.get(),
                 Entry::Vacant(v) => {
                     let row = *next_row;
@@ -136,23 +138,23 @@ pub mod netflix {
                 }
             };
 
-            m.entries.insert((row, col), rating);
+            m.entries.insert((row, col), rating_norm);
             *m.nnz_row.entry(row).or_insert(0) += 1;
             *m.nnz_col.entry(col).or_insert(0) += 1;
         }
     }
 
-    pub fn load_netflix_dataset(n_movies: u32) -> (NetflixMatrix, IdMapping) {
+    pub fn load_netflix_dataset(n_movies: nfidx) -> (NetflixMatrix, IdMapping) {
         let mut m = NetflixMatrix::new_empty(0, n_movies);
         let mut im = IdMapping::new_empty();
-        let mut next_row: u32 = 0;
-        let mut next_col: u32 = 0;
+        let mut next_row: nfidx = 0;
+        let mut next_col: nfidx = 0;
 
         let paths = read_dir(get_data_dir()).unwrap();
 
         paths
-            .take(n_movies as usize)
-            .progress_count(n_movies.into())
+            .take(n_movies)
+            .progress_count(n_movies as u64)
             .for_each(|de| {
                 load_one_movie(de.unwrap(), &mut m, &mut im, &mut next_row, &mut next_col)
             });
