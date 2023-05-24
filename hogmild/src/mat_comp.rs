@@ -16,6 +16,7 @@ pub struct HyperParams {
     stopping_criterion: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl HyperParams {
     pub fn new(
         n_features: usize,
@@ -75,6 +76,7 @@ fn regu(x: &ArrayView1<f32>, lam: f32, nnz: usize) -> f32 {
     x2.sum() * lam / (nnz as f32)
 }
 
+#[allow(dead_code)]
 fn sample_loss(
     r: &NetflixMatrix,
     p: &ModelParams,
@@ -100,6 +102,7 @@ fn sample_loss(
     e.powi(2) + x_regu + y_regu + xb_regu + yb_regu
 }
 
+#[allow(dead_code)]
 fn batch_loss(r: &NetflixMatrix, p: &ModelParams, h: &HyperParams) -> f32 {
     r.entries
         .iter()

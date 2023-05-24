@@ -64,6 +64,7 @@ pub mod netflix {
     use std::io::{BufRead, BufReader};
     use std::path::{Path, PathBuf};
 
+    #[allow(non_camel_case_types)]
     type nfidx = usize;
     pub type NetflixMatrix = SparseMatrix<nfidx, f32>;
 
@@ -80,10 +81,12 @@ pub mod netflix {
             }
         }
 
+        #[allow(dead_code)]
         pub fn user_to_row(&self, user: nfidx) -> nfidx {
             *self.user_to_row.get(&user).unwrap()
         }
 
+        #[allow(dead_code)]
         pub fn movie_to_col(&self, movie: nfidx) -> nfidx {
             *self.movie_to_col.get(&movie).unwrap()
         }
