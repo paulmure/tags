@@ -1,5 +1,5 @@
 target/
 Cargo.lock
-loss.txt
-loss.png
+*.txt
+*.png
 
