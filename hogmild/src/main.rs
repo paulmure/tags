@@ -9,7 +9,7 @@ use mat_comp::{train, HyperParams};
 #[derive(Parser, Debug)]
 struct Args {
     /// Number of movies to load
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 100)]
     n_movies: usize,
     /// Number of features in the decomposition matrix
     #[arg(short, long, default_value_t = 10)]
@@ -29,14 +29,17 @@ struct Args {
     /// Model hyper parameter lambda_yb
     #[arg(short, long, default_value_t = 1.)]
     lam_yb: f32,
-    /// Model hyper parameter learning_rate
-    #[arg(short, long, default_value_t = 0.01)]
-    learning_rate: f32,
+    /// Model hyper parameter initial learning rate
+    #[arg(short, long, default_value_t = 0.1)]
+    alpha_0: f32,
+    /// Model hyper parameter initial learning rate
+    #[arg(short, long, default_value_t = 5.)]
+    decay_rate: f32,
     /// Maximum number of epochs to run for
-    #[arg(short, long, default_value_t = 100)]
+    #[arg(short, long, default_value_t = 1000)]
     max_epoch: usize,
     /// When to stop training
-    #[arg(short, long, default_value_t = 0.01)]
+    #[arg(short, long, default_value_t = 0.001)]
     stopping_criterion: f32,
 }
 
@@ -52,7 +55,8 @@ fn main() {
         args.lam_yf,
         args.lam_xb,
         args.lam_yb,
-        args.learning_rate,
+        args.alpha_0,
+        args.decay_rate,
         args.max_epoch,
         args.stopping_criterion,
     );

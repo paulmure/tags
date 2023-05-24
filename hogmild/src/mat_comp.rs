@@ -10,7 +10,8 @@ pub struct HyperParams {
     lam_yf: f32,
     lam_xb: f32,
     lam_yb: f32,
-    learning_rate: f32,
+    alpha_0: f32,
+    decay_rate: f32,
     max_epoch: usize,
     stopping_criterion: f32,
 }
@@ -23,7 +24,8 @@ impl HyperParams {
         lam_yf: f32,
         lam_xb: f32,
         lam_yb: f32,
-        learning_rate: f32,
+        alpha_0: f32,
+        decay_rate: f32,
         max_epoch: usize,
         stopping_criterion: f32,
     ) -> Self {
@@ -34,7 +36,8 @@ impl HyperParams {
             lam_yf,
             lam_xb,
             lam_yb,
-            learning_rate,
+            alpha_0,
+            decay_rate,
             max_epoch,
             stopping_criterion,
         }
@@ -111,6 +114,7 @@ fn sgd_step(
     u: usize,
     i: usize,
     z: f32,
+    learning_rate: f32,
 ) -> f32 {
     // Forward prop
     let nnzrow = r.row_occupancy(u);
@@ -130,11 +134,11 @@ fn sgd_step(
     let loss = e.powi(2) + x_regu + y_regu + xb_regu + yb_regu;
 
     // Backward prop
-    p.xb[u] += h.learning_rate * (e - xb_regu);
-    p.yb[i] += h.learning_rate * (e - yb_regu);
+    p.xb[u] += learning_rate * (e - xb_regu);
+    p.yb[i] += learning_rate * (e - yb_regu);
 
-    let new_x = &xrow + (h.learning_rate * ((e * &ycol) - (x_regu * &xrow)));
-    let new_y = &ycol + (h.learning_rate * ((e * &xrow) - (y_regu * &ycol)));
+    let new_x = &xrow + (learning_rate * ((e * &ycol) - (x_regu * &xrow)));
+    let new_y = &ycol + (learning_rate * ((e * &xrow) - (y_regu * &ycol)));
 
     p.x.slice_mut(s![u, ..]).assign(&new_x);
     p.y.slice_mut(s![i, ..]).assign(&new_y);
@@ -142,10 +146,10 @@ fn sgd_step(
     loss
 }
 
-fn batch_sgd(r: &NetflixMatrix, p: &mut ModelParams, h: &HyperParams) -> f32 {
+fn batch_sgd(r: &NetflixMatrix, p: &mut ModelParams, h: &HyperParams, learning_rate: f32) -> f32 {
     r.entries
         .iter()
-        .map(|(k, v)| sgd_step(r, p, h, k.0, k.1, *v))
+        .map(|(k, v)| sgd_step(r, p, h, k.0, k.1, *v, learning_rate))
         .sum()
 }
 
@@ -154,8 +158,9 @@ pub fn train(r: &NetflixMatrix, h: &HyperParams) -> Vec<f32> {
 
     let mut res = vec![];
 
-    for _ in 0..h.max_epoch {
-        let curr_loss = batch_sgd(r, &mut p, h);
+    for epoch in 0..h.max_epoch {
+        let learning_rate = 1. / (1. + (h.decay_rate * (epoch as f32))) * h.alpha_0;
+        let curr_loss = batch_sgd(r, &mut p, h, learning_rate);
         let last_loss = *res.last().unwrap_or(&f32::MAX);
         res.push(curr_loss);
 
