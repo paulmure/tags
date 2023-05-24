@@ -4,7 +4,7 @@ import os
 from multiprocessing import Pool
 
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(FILE_DIR, "..", "data", "training_set")
+DATA_DIR = os.path.join(FILE_DIR, "..", "data", "netflix", "training_set")
 HEADER = "User,Rating,Date\n"
 
 
