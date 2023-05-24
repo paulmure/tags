@@ -2,7 +2,7 @@ use clap::Parser;
 
 mod data_loader;
 
-use data_loader::get_netflix_data;
+use data_loader::netflix::load_netflix_dataset;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -14,6 +14,8 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let df = get_netflix_data(args.num_movies);
-    println!("{}", df);
+    let (m, _) = load_netflix_dataset(args.num_movies as u32);
+    let (rows, cols) = m.shape();
+    println!("matrix dim = {} x {}", rows, cols);
+    println!("matrix[0, 0]= {}", m[(0, 0)]);
 }
