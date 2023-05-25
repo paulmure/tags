@@ -4,7 +4,7 @@ mod data_loader;
 mod mat_comp;
 
 use data_loader::netflix::load_netflix_dataset;
-use mat_comp::{train, HyperParams};
+use mat_comp::{train, train_async, HyperParams};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -12,35 +12,44 @@ struct Args {
     #[arg(short, long, default_value_t = 100)]
     n_movies: usize,
     /// Number of features in the decomposition matrix
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(long, default_value_t = 10)]
     n_features: usize,
     /// Model hyper parameter mu
-    #[arg(short, long, default_value_t = 1.)]
+    #[arg(long, default_value_t = 1.)]
     mu: f32,
     /// Model hyper parameter lambda_xf
-    #[arg(short, long, default_value_t = 1.)]
+    #[arg(long, default_value_t = 1.)]
     lam_xf: f32,
     /// Model hyper parameter lambda_yf
-    #[arg(short, long, default_value_t = 1.)]
+    #[arg(long, default_value_t = 1.)]
     lam_yf: f32,
     /// Model hyper parameter lambda_xb
-    #[arg(short, long, default_value_t = 1.)]
+    #[arg(long, default_value_t = 1.)]
     lam_xb: f32,
     /// Model hyper parameter lambda_yb
-    #[arg(short, long, default_value_t = 1.)]
+    #[arg(long, default_value_t = 1.)]
     lam_yb: f32,
     /// Model hyper parameter initial learning rate
-    #[arg(short, long, default_value_t = 0.1)]
+    #[arg(long, default_value_t = 0.1)]
     alpha_0: f32,
     /// Model hyper parameter initial learning rate
-    #[arg(short, long, default_value_t = 5.)]
+    #[arg(long, default_value_t = 5.)]
     decay_rate: f32,
     /// Maximum number of epochs to run for
-    #[arg(short, long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 1000)]
     max_epoch: usize,
     /// When to stop training
-    #[arg(short, long, default_value_t = 0.001)]
+    #[arg(long, default_value_t = 0.001)]
     stopping_criterion: f32,
+    /// Whether or not to do hogwild
+    #[arg(long, default_value_t = true)]
+    hogwild: bool,
+    /// Number of worker threads in async sgd
+    #[arg(long, default_value_t = 8)]
+    n_workers: usize,
+    /// Fifo depth in async sgd
+    #[arg(long, default_value_t = 8)]
+    fifo_depth: usize,
 }
 
 fn main() {
@@ -61,5 +70,9 @@ fn main() {
         args.stopping_criterion,
     );
 
-    train(&m, &h);
+    if args.hogwild {
+        train_async(&m, &h, args.n_workers, args.fifo_depth);
+    } else {
+        train(&m, &h);
+    }
 }

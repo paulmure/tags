@@ -1,7 +1,8 @@
-use crossbeam::channel::{bounded, Receiver, Select, Sender};
+use crossbeam::channel::{bounded, Receiver, Select, SelectedOperation, Sender};
 use ndarray::prelude::*;
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
+use std::iter::Peekable;
 use std::thread;
 
 use crate::data_loader::netflix::NetflixMatrix;
@@ -194,6 +195,8 @@ struct SamplePacket {
 }
 
 struct UpdatePacket {
+    u: usize,
+    i: usize,
     x_update: Array1<f32>,
     y_update: Array1<f32>,
     xb_update: f32,
@@ -225,6 +228,8 @@ fn sgd_step_async(r: &NetflixMatrix, h: &HyperParams, sample: &SamplePacket) -> 
     let y_update = sample.learning_rate * ((e * &xrow) - (y_regu * &ycol));
 
     UpdatePacket {
+        u: sample.u,
+        i: sample.i,
         x_update,
         y_update,
         xb_update,
@@ -264,24 +269,112 @@ fn make_sample_packet(
     }
 }
 
+fn send_samples<'a>(
+    sample_sel: &mut Select,
+    sample_txs: &[Sender<SamplePacket>],
+    data: &mut Peekable<impl Iterator<Item = (&'a (usize, usize), &'a f32)>>,
+    p: &mut ModelParams,
+    learning_rate: f32,
+) -> usize {
+    let mut samples_sent = 0;
+    while data.peek().is_some() {
+        if let Ok(oper) = sample_sel.try_select() {
+            let index = oper.index();
+            if let Some(((u, i), z)) = data.next() {
+                oper.send(
+                    &sample_txs[index],
+                    make_sample_packet(p, *u, *i, *z, learning_rate),
+                )
+                .unwrap();
+                samples_sent += 1;
+            }
+        } else {
+            break;
+        }
+    }
+    samples_sent
+}
+
+fn update_gradient(update: UpdatePacket, p: &mut ModelParams) {
+    let x_idx = s![update.u, ..];
+    let new_x = &p.x.slice(x_idx) + &update.x_update;
+    p.x.slice_mut(x_idx).assign(&new_x);
+
+    let y_idx = s![update.i, ..];
+    let new_y = &p.y.slice(y_idx) + &update.y_update;
+    p.y.slice_mut(y_idx).assign(&new_y);
+
+    p.xb[update.u] += update.xb_update;
+    p.yb[update.i] += update.yb_update;
+}
+
+fn receive_updates(
+    update_sel: &mut Select,
+    update_rxs: &[Receiver<UpdatePacket>],
+    p: &mut ModelParams,
+    minimum: usize,
+) -> (usize, f32) {
+    let mut updates_received = 0;
+    let mut total_loss = 0.;
+
+    let mut pull_update = |oper: SelectedOperation| {
+        let index = oper.index();
+        let update = oper.recv(&update_rxs[index]).unwrap();
+        total_loss += update.loss;
+        update_gradient(update, p);
+        updates_received += 1;
+    };
+
+    for _ in 0..minimum {
+        let oper = update_sel.select();
+        pull_update(oper);
+    }
+
+    while let Ok(oper) = update_sel.try_select() {
+        pull_update(oper);
+    }
+
+    (updates_received, total_loss)
+}
+
 fn batch_sgd_async(
     r: &NetflixMatrix,
     p: &mut ModelParams,
     learning_rate: f32,
-    sample_txs: &Vec<Sender<SamplePacket>>,
-    update_rxs: &Vec<Receiver<UpdatePacket>>,
+    sample_txs: &[Sender<SamplePacket>],
+    update_rxs: &[Receiver<UpdatePacket>],
 ) -> f32 {
-    let total_loss: f32 = 0.;
-    for ((u, i), z) in r.entries.iter() {}
-    // let mut data = r.entries.iter();
-    // loop {
-    //     match data.next() {
-    //         Some(((u, i), z)) => {
-    //             let sample = make_sample_packet(p, *u, *i, *z, learning_rate);
-    //         }
-    //         None => break,
-    //     }
-    // }
+    let mut total_loss: f32 = 0.;
+
+    let mut sample_sel = Select::new();
+    for stx in sample_txs {
+        sample_sel.send(stx);
+    }
+
+    let mut update_sel = Select::new();
+    for urx in update_rxs {
+        update_sel.recv(urx);
+    }
+
+    let mut data = r.entries.iter().peekable();
+    let mut total_sent = 0;
+
+    loop {
+        if data.peek().is_none() {
+            break;
+        }
+
+        let samples_sent = send_samples(&mut sample_sel, sample_txs, &mut data, p, learning_rate);
+        assert!(samples_sent >= 1, "Failed to send at least one sample");
+        total_sent += samples_sent;
+
+        let (updates_received, new_loss) = receive_updates(&mut update_sel, update_rxs, p, 1);
+        total_sent -= updates_received;
+        total_loss += new_loss;
+    }
+
+    receive_updates(&mut update_sel, update_rxs, p, total_sent);
+
     total_loss
 }
 
