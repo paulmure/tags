@@ -42,7 +42,7 @@ struct Args {
     #[arg(long, default_value_t = 0.001)]
     stopping_criterion: f32,
     /// Whether or not to do hogwild
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     hogwild: bool,
     /// Number of worker threads in async sgd
     #[arg(long, default_value_t = 8)]

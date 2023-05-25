@@ -4,6 +4,7 @@ use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 use std::iter::Peekable;
 use std::thread;
+use std::time::Instant;
 
 use crate::data_loader::netflix::NetflixMatrix;
 
@@ -166,12 +167,15 @@ pub fn train(r: &NetflixMatrix, h: &HyperParams) -> Vec<f32> {
     let mut res = vec![];
 
     for epoch in 0..h.max_epoch {
+        let start_time = Instant::now();
+
         let learning_rate = 1. / (1. + (h.decay_rate * (epoch as f32))) * h.alpha_0;
         let curr_loss = batch_sgd(r, &mut p, h, learning_rate);
         let last_loss = *res.last().unwrap_or(&f32::MAX);
         res.push(curr_loss);
 
-        println!("{}", curr_loss);
+        let elapsed = start_time.elapsed();
+        println!("{}, {}", curr_loss, elapsed.as_secs_f64());
 
         let delta = (last_loss - curr_loss) / last_loss;
         if delta < h.stopping_criterion {
@@ -404,12 +408,15 @@ pub fn train_async(
         }
 
         for epoch in 0..h.max_epoch {
+            let start_time = Instant::now();
+
             let learning_rate = 1. / (1. + (h.decay_rate * (epoch as f32))) * h.alpha_0;
             let curr_loss = batch_sgd_async(r, &mut p, learning_rate, &sample_txs, &update_rxs);
             let last_loss = *history.last().unwrap_or(&f32::MAX);
             history.push(curr_loss);
 
-            println!("{}", curr_loss);
+            let elapsed = start_time.elapsed();
+            println!("{}, {}", curr_loss, elapsed.as_secs_f64());
 
             let delta = (last_loss - curr_loss) / last_loss;
             if delta < h.stopping_criterion {
