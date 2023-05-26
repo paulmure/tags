@@ -3,9 +3,9 @@ use clap::Parser;
 mod args;
 mod data_loader;
 mod data_structures;
-mod mat_comp;
 mod sgd;
 
+mod mat_comp;
 use args::Args;
 use mat_comp::matrix_completion;
 

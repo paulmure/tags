@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map, HashMap},
     default::Default,
+    iter,
     ops::Index,
 };
 
@@ -17,6 +18,10 @@ impl<'a, Elem> Iterator for Iter<'a, Elem> {
 }
 
 pub trait SparseMatrixView<Elem>: Index<(usize, usize)> {
+    type Iter<T>: Iterator<Item = ((usize, usize), T)>
+    where
+        T: 'static;
+
     fn n_rows(&self) -> usize;
     fn n_cols(&self) -> usize;
     fn shape(&self) -> (usize, usize);
@@ -24,7 +29,7 @@ pub trait SparseMatrixView<Elem>: Index<(usize, usize)> {
     fn nnz_row(&self, row: usize) -> usize;
     fn nnz_col(&self, row: usize) -> usize;
 
-    fn iter(&self) -> Iter<Elem>;
+    fn iter(&self) -> Self::Iter<Elem>;
 }
 
 #[derive(Debug)]
@@ -106,8 +111,10 @@ impl<'a, Elem> IntoIterator for &'a HashMapSparseMatrix<Elem> {
 
 impl<'a, Elem> SparseMatrixView<Elem> for &'a HashMapSparseMatrix<Elem>
 where
-    Elem: Default,
+    Elem: Default + Copy + 'static,
 {
+    type Iter<T> = iter::Map<hash_map::Iter<'a, (usize, usize), T>, fn((&(usize, usize), &T)) -> ((usize, usize), T)> where T: 'static;
+
     fn n_rows(&self) -> usize {
         self.n_rows()
     }
@@ -128,9 +135,7 @@ where
         self.nnz_col(col)
     }
 
-    fn iter(&self) -> Iter<Elem> {
-        Iter {
-            iter: Box::new(self.entries.iter()),
-        }
+    fn iter(&self) -> Self::Iter<Elem> {
+        self.entries.iter().map(|(&(i, j), &v)| ((i, j), v))
     }
 }
