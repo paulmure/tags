@@ -1,14 +1,15 @@
 use crossbeam::channel::{bounded, Receiver, Select, SelectedOperation, Sender};
 use ndarray::prelude::*;
-use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
+use ndarray_rand::rand::SeedableRng;
+use ndarray_rand::{rand::rngs::StdRng, rand_distr::Uniform, RandomExt};
 use std::iter::Peekable;
 use std::thread;
 use std::time::Instant;
 
-use crate::data_loader::netflix::NetflixMatrix;
+use crate::args::Args;
+use crate::data_loader::netflix::{load_netflix_dataset, NetflixMatrix};
 
-pub struct HyperParams {
+struct HyperParams {
     n_features: usize,
     mu: f32,
     lam_xf: f32,
@@ -23,7 +24,7 @@ pub struct HyperParams {
 
 #[allow(clippy::too_many_arguments)]
 impl HyperParams {
-    pub fn new(
+    fn new(
         n_features: usize,
         mu: f32,
         lam_xf: f32,
@@ -58,12 +59,13 @@ struct ModelParams {
 }
 
 impl ModelParams {
-    fn new(n_rows: usize, n_cols: usize, n_features: usize) -> Self {
+    fn new(n_rows: usize, n_cols: usize, n_features: usize, seed: u64) -> Self {
+        let mut rng = StdRng::seed_from_u64(seed);
         Self {
-            x: Array::random((n_rows, n_features), Uniform::new(-1., 1.)),
-            y: Array::random((n_cols, n_features), Uniform::new(-1., 1.)),
-            xb: Array::random(n_rows, Uniform::new(-1., 1.)),
-            yb: Array::random(n_cols, Uniform::new(-1., 1.)),
+            x: Array::random_using((n_rows, n_features), Uniform::new(-1., 1.), &mut rng),
+            y: Array::random_using((n_cols, n_features), Uniform::new(-1., 1.), &mut rng),
+            xb: Array::random_using(n_rows, Uniform::new(-1., 1.), &mut rng),
+            yb: Array::random_using(n_cols, Uniform::new(-1., 1.), &mut rng),
         }
     }
 }
@@ -90,8 +92,8 @@ fn sample_loss(
     i: usize,
     z: f32,
 ) -> f32 {
-    let nnzrow = r.row_occupancy(u);
-    let nnzcol = r.col_occupancy(i);
+    let nnzrow = r.nnz_row(u);
+    let nnzcol = r.nnz_col(i);
 
     let xrow = p.x.slice(s![u, ..]);
     let ycol = p.y.slice(s![i, ..]);
@@ -125,8 +127,8 @@ fn sgd_step(
     learning_rate: f32,
 ) -> f32 {
     // Forward prop
-    let nnzrow = r.row_occupancy(u);
-    let nnzcol = r.col_occupancy(i);
+    let nnzrow = r.nnz_row(u);
+    let nnzcol = r.nnz_col(i);
 
     let xrow = p.x.slice(s![u, ..]);
     let ycol = p.y.slice(s![i, ..]);
@@ -161,8 +163,8 @@ fn batch_sgd(r: &NetflixMatrix, p: &mut ModelParams, h: &HyperParams, learning_r
         .sum()
 }
 
-pub fn train(r: &NetflixMatrix, h: &HyperParams) -> Vec<f32> {
-    let mut p = ModelParams::new(r.shape().0, r.shape().1, h.n_features);
+fn train(r: &NetflixMatrix, h: &HyperParams, rng_seed: u64) -> Vec<f32> {
+    let mut p = ModelParams::new(r.shape().0, r.shape().1, h.n_features, rng_seed);
 
     let mut res = vec![];
 
@@ -210,8 +212,8 @@ struct UpdatePacket {
 
 fn sgd_step_async(r: &NetflixMatrix, h: &HyperParams, sample: &SamplePacket) -> UpdatePacket {
     // Forward prop
-    let nnzrow = r.row_occupancy(sample.u);
-    let nnzcol = r.col_occupancy(sample.i);
+    let nnzrow = r.nnz_row(sample.u);
+    let nnzcol = r.nnz_col(sample.i);
 
     let xrow = sample.xrow.view();
     let ycol = sample.ycol.view();
@@ -382,13 +384,14 @@ fn batch_sgd_async(
     total_loss
 }
 
-pub fn train_async(
+fn train_async(
     r: &NetflixMatrix,
     h: &HyperParams,
     n_workers: usize,
     fifo_depth: usize,
+    rng_seed: u64,
 ) -> Vec<f32> {
-    let mut p = ModelParams::new(r.shape().0, r.shape().1, h.n_features);
+    let mut p = ModelParams::new(r.shape().0, r.shape().1, h.n_features, rng_seed);
     let mut history = vec![];
 
     thread::scope(|s| {
@@ -426,4 +429,39 @@ pub fn train_async(
     });
 
     history
+}
+
+pub fn matrix_completion(args: Args) {
+    let m = match args.data_set.as_str() {
+        "netflix" => load_netflix_dataset(args.n_movies),
+        ds => panic!("Unknown dataset: {}", ds),
+    };
+
+    // let num_entries: f64 = m.entries.len() as f64;
+    // let matrix_size: f64 = (m.n_row * m.n_col) as f64;
+    // let sparsity = (1. - num_entries / matrix_size) * 100.;
+    // println!(
+    //     "Dataset has {} samples with sparsity {:.2}%",
+    //     m.entries.len(),
+    //     sparsity
+    // );
+
+    let h = HyperParams::new(
+        args.n_features,
+        args.mu,
+        args.lam_xf,
+        args.lam_yf,
+        args.lam_xb,
+        args.lam_yb,
+        args.alpha_0,
+        args.decay_rate,
+        args.max_epoch,
+        args.stopping_criterion,
+    );
+
+    if args.hogwild {
+        train_async(&m, &h, args.n_workers, args.fifo_depth, args.rng_seed);
+    } else {
+        train(&m, &h, args.rng_seed);
+    }
 }
