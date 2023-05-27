@@ -1,36 +1,9 @@
 use std::{
     collections::{hash_map, HashMap},
-    default::Default,
-    iter,
     ops::Index,
 };
 
-pub struct Iter<'a, Elem> {
-    iter: Box<dyn Iterator<Item = (&'a (usize, usize), &'a Elem)>>,
-}
-
-impl<'a, Elem> Iterator for Iter<'a, Elem> {
-    type Item = (&'a (usize, usize), &'a Elem);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
-    }
-}
-
-pub trait SparseMatrixView<Elem>: Index<(usize, usize)> {
-    type Iter<T>: Iterator<Item = ((usize, usize), T)>
-    where
-        T: 'static;
-
-    fn n_rows(&self) -> usize;
-    fn n_cols(&self) -> usize;
-    fn shape(&self) -> (usize, usize);
-
-    fn nnz_row(&self, row: usize) -> usize;
-    fn nnz_col(&self, row: usize) -> usize;
-
-    fn iter(&self) -> Self::Iter<Elem>;
-}
+use crate::data_structures::SparseMatrixView;
 
 #[derive(Debug)]
 pub struct HashMapSparseMatrix<Elem> {
@@ -81,12 +54,22 @@ impl<Elem> HashMapSparseMatrix<Elem> {
         (self.n_rows, self.n_cols)
     }
 
+    pub fn nnz(&self) -> usize {
+        self.entries.len()
+    }
+
     pub fn nnz_row(&self, row: usize) -> usize {
         *self.nnz_row.get(&row).unwrap()
     }
 
     pub fn nnz_col(&self, col: usize) -> usize {
         *self.nnz_col.get(&col).unwrap()
+    }
+
+    pub fn iter<'a>(&'a self) -> Iter<'a, Elem> {
+        Iter {
+            iter: self.entries.iter(),
+        }
     }
 }
 
@@ -100,20 +83,22 @@ where
     }
 }
 
-impl<'a, Elem> IntoIterator for &'a HashMapSparseMatrix<Elem> {
-    type Item = (&'a (usize, usize), &'a Elem);
-    type IntoIter = hash_map::Iter<'a, (usize, usize), Elem>;
+pub struct Iter<'a, Elem> {
+    iter: hash_map::Iter<'a, (usize, usize), Elem>,
+}
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.entries.iter()
+impl<'a, Elem> Iterator for Iter<'a, Elem> {
+    type Item = ((usize, usize), Elem);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|(&(i, j), &v)| ((i, j), v))
     }
 }
 
 impl<'a, Elem> SparseMatrixView<Elem> for &'a HashMapSparseMatrix<Elem>
 where
-    Elem: Default + Copy + 'static,
+    Elem: Default,
 {
-    type Iter<T> = iter::Map<hash_map::Iter<'a, (usize, usize), T>, fn((&(usize, usize), &T)) -> ((usize, usize), T)> where T: 'static;
+    type Iter = Iter<'a, Elem>;
 
     fn n_rows(&self) -> usize {
         self.n_rows()
@@ -127,6 +112,10 @@ where
         self.shape()
     }
 
+    fn nnnz(&self) -> usize {
+        self.nnz()
+    }
+
     fn nnz_row(&self, row: usize) -> usize {
         self.nnz_row(row)
     }
@@ -135,7 +124,7 @@ where
         self.nnz_col(col)
     }
 
-    fn iter(&self) -> Self::Iter<Elem> {
-        self.entries.iter().map(|(&(i, j), &v)| ((i, j), v))
+    fn iter(&self) -> Self::Iter {
+        self.iter()
     }
 }

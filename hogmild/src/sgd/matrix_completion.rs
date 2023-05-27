@@ -1,9 +1,13 @@
+use atomic_float::AtomicF32;
 use ndarray::prelude::*;
-use ndarray_rand::rand::SeedableRng;
-use ndarray_rand::{rand::rngs::StdRng, rand_distr::Uniform, RandomExt};
+use ndarray_rand::{
+    rand::{rngs::StdRng, SeedableRng},
+    rand_distr::Uniform,
+    RandomExt,
+};
 use std::time::Instant;
 
-use crate::data_structures::SparseMatrixView;
+use crate::{data_structures::SparseMatrixView, sgd::SGD};
 
 struct HyperParams {
     n_features: usize,
@@ -18,7 +22,7 @@ struct HyperParams {
     stopping_criterion: f32,
 }
 
-#[allow(clippy::too_many_arguments)]
+// #[allow(clippy::too_many_arguments)]
 impl HyperParams {
     fn new(
         n_features: usize,
@@ -47,14 +51,14 @@ impl HyperParams {
     }
 }
 
-struct ModelParams {
+struct Weights {
     x: Array2<f32>,
     y: Array2<f32>,
     xb: Array1<f32>,
     yb: Array1<f32>,
 }
 
-impl ModelParams {
+impl Weights {
     fn new(n_rows: usize, n_cols: usize, n_features: usize, seed: u64) -> Self {
         let mut rng = StdRng::seed_from_u64(seed);
         Self {
@@ -64,6 +68,58 @@ impl ModelParams {
             yb: Array::random_using(n_cols, Uniform::new(-1., 1.), &mut rng),
         }
     }
+}
+
+struct Sample<'a> {
+    u: usize,
+    v: usize,
+    z: f32,
+    xrow: ArrayView1<'a, f32>,
+    ycol: ArrayView1<'a, f32>,
+    xb: f32,
+    yb: f32,
+}
+
+struct Update {
+    u: usize,
+    v: usize,
+    xrow_grd: Array1<f32>,
+    ycol_grd: Array1<f32>,
+    xb_grad: f32,
+    yb_grad: f32,
+    loss: f32,
+}
+
+struct MatrixCompletion<'a, SpM>
+where
+    SpM: SparseMatrixView<f32>,
+{
+    hyper_params: HyperParams,
+    weights: Weights,
+    data: &'a SpM,
+    learning_rate: AtomicF32,
+}
+
+type MatrixData = ((usize, usize), f32);
+
+impl<'a> SGD<MatrixData, Weights, Sample<'a>, Update> for MatrixCompletion {
+    fn take_samples(&self, params: &Weights, data: Vec<MatrixData>) -> Vec<Sample<'a>> {
+        data.iter()
+            .map(|&((u, v), z)| Sample {
+                u,
+                v,
+                z,
+                xrow: params.x.slice(s![u, ..]),
+                ycol: params.y.slice(s![v, ..]),
+                xb: params.xb[u],
+                yb: params.yb[v],
+            })
+            .collect()
+    }
+
+    fn gradient(&self, samples: &Vec<Sample<'a>>) -> Vec<Update> {}
+
+    fn fold(&self, params: &mut Weights, updates: Vec<Update>) {}
 }
 
 fn pred(x: &ArrayView1<f32>, y: &ArrayView1<f32>, xb: f32, yb: f32, mu: f32) -> f32 {
@@ -79,110 +135,35 @@ fn regu(x: &ArrayView1<f32>, lam: f32, nnz: usize) -> f32 {
     x2.sum() * lam / (nnz as f32)
 }
 
-#[allow(dead_code)]
-fn sample_loss(
-    r: &impl SparseMatrixView<f32>,
-    p: &ModelParams,
-    h: &HyperParams,
-    u: usize,
-    i: usize,
-    z: f32,
-) -> f32 {
-    let nnzrow = r.nnz_row(u);
-    let nnzcol = r.nnz_col(i);
+impl MatrixCompletion {
+    fn gradient(&self, sample: Sample) -> Update {
+        // Forward prop
+        let nnzrow = self..nnz_row(u);
+        let nnzcol = r.nnz_col(i);
 
-    let xrow = p.x.slice(s![u, ..]);
-    let ycol = p.y.slice(s![i, ..]);
-    let xb = p.xb[u];
-    let yb = p.yb[i];
+        let xrow = p.x.slice(s![u, ..]);
+        let ycol = p.y.slice(s![i, ..]);
+        let xb = p.xb[u];
+        let yb = p.yb[i];
 
-    let e = error(z, &xrow, &ycol, xb, yb, h.mu);
-    let x_regu = regu(&xrow, h.lam_xf, nnzrow);
-    let y_regu = regu(&ycol, h.lam_yf, nnzcol);
-    let xb_regu = xb * h.lam_xb / (nnzrow as f32);
-    let yb_regu = yb * h.lam_yb / (nnzcol as f32);
+        let e = error(z, &xrow, &ycol, xb, yb, h.mu);
+        let x_regu = regu(&xrow, h.lam_xf, nnzrow);
+        let y_regu = regu(&ycol, h.lam_yf, nnzcol);
+        let xb_regu = xb * h.lam_xb / (nnzrow as f32);
+        let yb_regu = yb * h.lam_yb / (nnzcol as f32);
 
-    e.powi(2) + x_regu + y_regu + xb_regu + yb_regu
-}
+        let loss = e.powi(2) + x_regu + y_regu + xb_regu + yb_regu;
 
-#[allow(dead_code)]
-fn batch_loss(r: &impl SparseMatrixView<f32>, p: &ModelParams, h: &HyperParams) -> f32 {
-    r.iter()
-        .map(|(k, v)| sample_loss(r, p, h, k.0, k.1, *v))
-        .sum()
-}
+        // Backward prop
+        p.xb[u] += learning_rate * (e - xb_regu);
+        p.yb[i] += learning_rate * (e - yb_regu);
 
-fn sgd_step(
-    r: &impl SparseMatrixView<f32>,
-    p: &mut ModelParams,
-    h: &HyperParams,
-    u: usize,
-    i: usize,
-    z: f32,
-    learning_rate: f32,
-) -> f32 {
-    // Forward prop
-    let nnzrow = r.nnz_row(u);
-    let nnzcol = r.nnz_col(i);
+        let new_x = &xrow + (learning_rate * ((e * &ycol) - (x_regu * &xrow)));
+        let new_y = &ycol + (learning_rate * ((e * &xrow) - (y_regu * &ycol)));
 
-    let xrow = p.x.slice(s![u, ..]);
-    let ycol = p.y.slice(s![i, ..]);
-    let xb = p.xb[u];
-    let yb = p.yb[i];
+        p.x.slice_mut(s![u, ..]).assign(&new_x);
+        p.y.slice_mut(s![i, ..]).assign(&new_y);
 
-    let e = error(z, &xrow, &ycol, xb, yb, h.mu);
-    let x_regu = regu(&xrow, h.lam_xf, nnzrow);
-    let y_regu = regu(&ycol, h.lam_yf, nnzcol);
-    let xb_regu = xb * h.lam_xb / (nnzrow as f32);
-    let yb_regu = yb * h.lam_yb / (nnzcol as f32);
-
-    let loss = e.powi(2) + x_regu + y_regu + xb_regu + yb_regu;
-
-    // Backward prop
-    p.xb[u] += learning_rate * (e - xb_regu);
-    p.yb[i] += learning_rate * (e - yb_regu);
-
-    let new_x = &xrow + (learning_rate * ((e * &ycol) - (x_regu * &xrow)));
-    let new_y = &ycol + (learning_rate * ((e * &xrow) - (y_regu * &ycol)));
-
-    p.x.slice_mut(s![u, ..]).assign(&new_x);
-    p.y.slice_mut(s![i, ..]).assign(&new_y);
-
-    loss
-}
-
-fn batch_sgd(
-    r: &impl SparseMatrixView<f32>,
-    p: &mut ModelParams,
-    h: &HyperParams,
-    learning_rate: f32,
-) -> f32 {
-    r.iter()
-        .map(|(k, v)| sgd_step(r, p, h, k.0, k.1, *v, learning_rate))
-        .sum()
-}
-
-fn train(r: &impl SparseMatrixView<f32>, h: &HyperParams, rng_seed: u64) -> Vec<f32> {
-    let mut p = ModelParams::new(r.shape().0, r.shape().1, h.n_features, rng_seed);
-
-    let mut res = vec![];
-
-    for epoch in 0..h.max_epoch {
-        let start_time = Instant::now();
-
-        let learning_rate = 1. / (1. + (h.decay_rate * (epoch as f32))) * h.alpha_0;
-        let curr_loss = batch_sgd(r, &mut p, h, learning_rate);
-        let last_loss = *res.last().unwrap_or(&f32::MAX);
-        res.push(curr_loss);
-
-        let elapsed = start_time.elapsed();
-        println!("{}, {}", curr_loss, elapsed.as_secs_f64());
-
-        let delta = (last_loss - curr_loss) / last_loss;
-        if delta < h.stopping_criterion {
-            break;
-        }
+        loss
     }
-
-    res
 }
