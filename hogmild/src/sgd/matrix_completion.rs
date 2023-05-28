@@ -5,48 +5,31 @@ use ndarray_rand::{
     rand_distr::Uniform,
     RandomExt,
 };
-use std::time::Instant;
+use std::sync::{atomic::Ordering, Arc};
 
-use crate::{data_structures::SparseMatrixView, sgd::SGD};
+use crate::{
+    args::Args,
+    data_loader,
+    data_structures::SparseMatrixView,
+    sgd::{Config, HasLoss, Orchestrator, Sgd},
+};
 
 struct HyperParams {
-    n_features: usize,
     mu: f32,
     lam_xf: f32,
     lam_yf: f32,
     lam_xb: f32,
     lam_yb: f32,
-    alpha_0: f32,
-    decay_rate: f32,
-    max_epoch: usize,
-    stopping_criterion: f32,
 }
 
-// #[allow(clippy::too_many_arguments)]
 impl HyperParams {
-    fn new(
-        n_features: usize,
-        mu: f32,
-        lam_xf: f32,
-        lam_yf: f32,
-        lam_xb: f32,
-        lam_yb: f32,
-        alpha_0: f32,
-        decay_rate: f32,
-        max_epoch: usize,
-        stopping_criterion: f32,
-    ) -> Self {
+    fn new(args: Args) -> Self {
         Self {
-            n_features,
-            mu,
-            lam_xf,
-            lam_yf,
-            lam_xb,
-            lam_yb,
-            alpha_0,
-            decay_rate,
-            max_epoch,
-            stopping_criterion,
+            mu: args.mu,
+            lam_xf: args.lam_xf,
+            lam_yf: args.lam_yf,
+            lam_xb: args.lam_xb,
+            lam_yb: args.lam_yb,
         }
     }
 }
@@ -70,12 +53,12 @@ impl Weights {
     }
 }
 
-struct Sample<'a> {
+struct Sample {
     u: usize,
     v: usize,
     z: f32,
-    xrow: ArrayView1<'a, f32>,
-    ycol: ArrayView1<'a, f32>,
+    xrow: Array1<f32>,
+    ycol: Array1<f32>,
     xb: f32,
     yb: f32,
 }
@@ -83,43 +66,59 @@ struct Sample<'a> {
 struct Update {
     u: usize,
     v: usize,
-    xrow_grd: Array1<f32>,
-    ycol_grd: Array1<f32>,
+    xrow_grad: Array1<f32>,
+    ycol_grad: Array1<f32>,
     xb_grad: f32,
     yb_grad: f32,
     loss: f32,
 }
 
-struct MatrixCompletion<'a, SpM>
+impl HasLoss for Update {
+    fn loss(&self) -> f32 {
+        self.loss
+    }
+}
+
+struct MatrixCompletion<SpM>
 where
     SpM: SparseMatrixView<f32>,
 {
     hyper_params: HyperParams,
     weights: Weights,
-    data: &'a SpM,
-    learning_rate: AtomicF32,
+    data: SpM,
+    learning_rate: Arc<AtomicF32>,
 }
 
 type MatrixData = ((usize, usize), f32);
 
-impl<'a> SGD<MatrixData, Weights, Sample<'a>, Update> for MatrixCompletion {
-    fn take_samples(&self, params: &Weights, data: Vec<MatrixData>) -> Vec<Sample<'a>> {
-        data.iter()
-            .map(|&((u, v), z)| Sample {
+impl<SpM> Sgd<MatrixData, Sample, Update> for MatrixCompletion<SpM>
+where
+    SpM: SparseMatrixView<f32>,
+{
+    fn take_samples(&self, data: Vec<MatrixData>) -> Vec<Sample> {
+        data.into_iter()
+            .map(|((u, v), z)| Sample {
                 u,
                 v,
                 z,
-                xrow: params.x.slice(s![u, ..]),
-                ycol: params.y.slice(s![v, ..]),
-                xb: params.xb[u],
-                yb: params.yb[v],
+                xrow: self.weights.x.slice(s![u, ..]).to_owned(),
+                ycol: self.weights.y.slice(s![v, ..]).to_owned(),
+                xb: self.weights.xb[u],
+                yb: self.weights.yb[v],
             })
             .collect()
     }
 
-    fn gradient(&self, samples: &Vec<Sample<'a>>) -> Vec<Update> {}
+    fn gradient(&self, samples: Vec<Sample>) -> Vec<Update> {
+        samples
+            .into_iter()
+            .map(|sample| self.gradient_one(sample))
+            .collect()
+    }
 
-    fn fold(&self, params: &mut Weights, updates: Vec<Update>) {}
+    fn fold(&mut self, updates: Vec<Update>) {
+        updates.into_iter().for_each(|update| self.fold_one(update));
+    }
 }
 
 fn pred(x: &ArrayView1<f32>, y: &ArrayView1<f32>, xb: f32, yb: f32, mu: f32) -> f32 {
@@ -135,35 +134,101 @@ fn regu(x: &ArrayView1<f32>, lam: f32, nnz: usize) -> f32 {
     x2.sum() * lam / (nnz as f32)
 }
 
-impl MatrixCompletion {
-    fn gradient(&self, sample: Sample) -> Update {
+impl<SpM> MatrixCompletion<SpM>
+where
+    SpM: SparseMatrixView<f32>,
+{
+    fn new(
+        hyper_params: HyperParams,
+        weights: Weights,
+        data: SpM,
+        learning_rate: Arc<AtomicF32>,
+    ) -> Self {
+        Self {
+            hyper_params,
+            weights,
+            data,
+            learning_rate,
+        }
+    }
+
+    fn gradient_one(&self, sample: Sample) -> Update {
         // Forward prop
-        let nnzrow = self..nnz_row(u);
-        let nnzcol = r.nnz_col(i);
+        let nnzrow = self.data.nnz_row(sample.u);
+        let nnzcol = self.data.nnz_col(sample.v);
 
-        let xrow = p.x.slice(s![u, ..]);
-        let ycol = p.y.slice(s![i, ..]);
-        let xb = p.xb[u];
-        let yb = p.yb[i];
-
-        let e = error(z, &xrow, &ycol, xb, yb, h.mu);
-        let x_regu = regu(&xrow, h.lam_xf, nnzrow);
-        let y_regu = regu(&ycol, h.lam_yf, nnzcol);
-        let xb_regu = xb * h.lam_xb / (nnzrow as f32);
-        let yb_regu = yb * h.lam_yb / (nnzcol as f32);
+        let e = error(
+            sample.z,
+            &sample.xrow.view(),
+            &sample.ycol.view(),
+            sample.xb,
+            sample.yb,
+            self.hyper_params.mu,
+        );
+        let x_regu = regu(&sample.xrow.view(), self.hyper_params.lam_xf, nnzrow);
+        let y_regu = regu(&sample.ycol.view(), self.hyper_params.lam_yf, nnzcol);
+        let xb_regu = sample.xb * self.hyper_params.lam_xb / (nnzrow as f32);
+        let yb_regu = sample.yb * self.hyper_params.lam_yb / (nnzcol as f32);
 
         let loss = e.powi(2) + x_regu + y_regu + xb_regu + yb_regu;
 
         // Backward prop
-        p.xb[u] += learning_rate * (e - xb_regu);
-        p.yb[i] += learning_rate * (e - yb_regu);
+        let learning_rate = self.learning_rate.load(Ordering::Relaxed);
+        let xb_grad = learning_rate * (e - xb_regu);
+        let yb_grad = learning_rate * (e - yb_regu);
 
-        let new_x = &xrow + (learning_rate * ((e * &ycol) - (x_regu * &xrow)));
-        let new_y = &ycol + (learning_rate * ((e * &xrow) - (y_regu * &ycol)));
+        let x_grad = learning_rate * ((e * &sample.ycol) - (x_regu * &sample.xrow));
+        let y_grad = learning_rate * ((e * &sample.xrow) - (y_regu * &sample.ycol));
 
-        p.x.slice_mut(s![u, ..]).assign(&new_x);
-        p.y.slice_mut(s![i, ..]).assign(&new_y);
+        Update {
+            u: sample.u,
+            v: sample.v,
+            xrow_grad: x_grad,
+            ycol_grad: y_grad,
+            xb_grad,
+            yb_grad,
+            loss,
+        }
+    }
 
-        loss
+    fn fold_one(&mut self, update: Update) {
+        self.weights.xb[update.u] += update.xb_grad;
+        self.weights.yb[update.v] += update.yb_grad;
+
+        let x_idx = s![update.u, ..];
+        let new_x = &self.weights.x.slice(x_idx) + &update.xrow_grad;
+        self.weights.x.slice_mut(x_idx).assign(&new_x);
+
+        let y_idx = s![update.v, ..];
+        let new_y = &self.weights.y.slice(y_idx) + &update.ycol_grad;
+        self.weights.y.slice_mut(y_idx).assign(&new_y);
+    }
+}
+
+fn run_matrix_completion(args: Args) {
+    let matrix = data_loader::netflix::load_netflix_dataset(args.n_movies);
+    let data_loader = data_loader::netflix::NetflixDataLoader::new(&matrix);
+    let config = Config::new(&args);
+    let learning_rate = Arc::new(AtomicF32::new(args.alpha_0));
+    let orchestrator = Orchestrator::new(config, Arc::clone(&learning_rate), data_loader);
+
+    let weights = Weights::new(
+        matrix.n_rows_base(),
+        matrix.n_cols_base(),
+        args.n_features,
+        args.rng_seed,
+    );
+    let hyper_params = HyperParams::new(args);
+    let mat_comp = MatrixCompletion::new(hyper_params, weights, &matrix, learning_rate);
+
+    orchestrator.run(mat_comp);
+}
+
+pub fn run(args: Args) {
+    match args.dataset.as_str() {
+        "netflix" => run_matrix_completion(args),
+        d => {
+            panic!("Unknown dataset {}", d)
+        }
     }
 }

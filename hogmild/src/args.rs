@@ -18,21 +18,39 @@ pub struct Args {
     /// Whether or not to do hogwild
     #[arg(long, default_value_t = false)]
     pub hogwild: bool,
+    /// The model to use
+    #[arg(long, default_value = "mat_comp")]
+    pub model: String,
+    /// The dataset to use
+    #[arg(long, default_value = "netflix")]
+    pub dataset: String,
+    /// RNG seed for weights initialization
+    #[arg(long, default_value_t = 4102000)]
+    pub rng_seed: u64,
+    /// Number of banks to separate the weights into
+    #[arg(long, default_value_t = 8)]
+    pub n_weight_banks: usize,
     /// Number of worker threads in async sgd
     #[arg(long, default_value_t = 8)]
     pub n_workers: usize,
     /// Fifo depth in async sgd
     #[arg(long, default_value_t = 8)]
     pub fifo_depth: usize,
-    /// The model to use
-    #[arg(long, default_value = "mat_comp")]
-    pub model: String,
-    /// The dataset to use
-    #[arg(long, default_value = "netflix")]
-    pub data_set: String,
-    /// RNG seed for weights initialization
-    #[arg(long, default_value_t = 4102000)]
-    pub rng_seed: u64,
+    /// Time to deliver a sample/update
+    #[arg(long, default_value_t = 32)]
+    pub network_delay: usize,
+    /// Initiation interval of gradient calculation
+    #[arg(long, default_value_t = 8)]
+    pub gradient_ii: usize,
+    /// Latency of calculating one gradient
+    #[arg(long, default_value_t = 32)]
+    pub gradient_latency: usize,
+    /// Initiation interval of folding gradient updates
+    #[arg(long, default_value_t = 8)]
+    pub fold_ii: usize,
+    /// Latency of folding one gradient update
+    #[arg(long, default_value_t = 32)]
+    pub fold_latency: usize,
 
     // <<<< Matrix completion specific >>>>
     /// Number of features in the decomposition matrix
