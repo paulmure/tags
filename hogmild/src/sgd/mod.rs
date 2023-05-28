@@ -53,7 +53,7 @@ impl Config {
     }
 }
 
-pub struct Orchestrator<Data, Loader>
+pub struct Orchestrator<Data, Loader, Sample, Update>
 where
     Loader: DataLoader<Data>,
 {
@@ -61,12 +61,13 @@ where
     learning_rate: Arc<AtomicF32>,
     epoch: usize,
     loader: Loader,
-    phantom: PhantomData<Data>,
+    phantom: PhantomData<(Data, Sample, Update)>,
 }
 
-impl<Data, Loader> Orchestrator<Data, Loader>
+impl<Data, Loader, Sample, Update> Orchestrator<Data, Loader, Sample, Update>
 where
     Loader: DataLoader<Data>,
+    Update: HasLoss,
 {
     pub fn new(config: Config, learning_rate: Arc<AtomicF32>, loader: Loader) -> Self {
         Self {
@@ -78,9 +79,21 @@ where
         }
     }
 
-    pub fn run<Sample, Update>(self, sgd: impl Sgd<Data, Sample, Update>)
-    where
-        Update: HasLoss,
-    {
+    fn train_epoch(&self) {
+        let mut sample_fifos: Vec<Vec<Sample>> = vec![];
+        let mut update_fifos: Vec<Vec<Update>> = vec![];
+        for _ in 0..self.config.n_workers {
+            sample_fifos.push(Vec::with_capacity(self.config.fifo_depth));
+            update_fifos.push(Vec::with_capacity(self.config.fifo_depth));
+        }
+        loop {
+            
+        }
+    }
+
+    pub fn run(self, sgd: impl Sgd<Data, Sample, Update>) {
+        let history: Vec<f32> = vec![];
+
+        for _ in 0..self.config.max_epoch {}
     }
 }
