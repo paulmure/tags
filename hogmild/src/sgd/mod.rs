@@ -1,33 +1,32 @@
 use atomic_float::AtomicF32;
+use crossbeam::channel::{bounded, Receiver, Sender};
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{args::Args, data_loader::DataLoader};
 
 pub mod matrix_completion;
+mod schedule_simulation;
 
 pub trait HasLoss {
     fn loss(&self) -> f32;
 }
 
+pub trait HasTime {
+    fn time(&self) -> usize;
+    fn add_time(&mut self, inc: usize);
+}
+
 pub trait Sgd<Data, Sample, Update>
 where
-    Update: HasLoss,
+    Sample: HasTime,
+    Update: HasTime + HasLoss,
 {
-    fn take_samples(&self, data: Vec<Data>) -> Vec<Sample>;
-    fn gradient(&self, samples: Vec<Sample>) -> Vec<Update>;
-    fn fold(&mut self, updates: Vec<Update>);
+    fn take_sample(&self, time: usize, data: Data) -> Sample;
+    fn gradient(&self, sample: Sample) -> Update;
+    fn fold(&mut self, update: Update);
 }
 
 pub struct Config {
-    n_weight_banks: usize,
-    n_workers: usize,
-    fifo_depth: usize,
-    network_delay: usize,
-    gradient_ii: usize,
-    gradient_latency: usize,
-    fold_ii: usize,
-    fold_latency: usize,
-
     alpha_0: f32,
     decay_rate: f32,
     stopping_criterion: f32,
@@ -37,14 +36,6 @@ pub struct Config {
 impl Config {
     pub fn new(args: &Args) -> Self {
         Self {
-            n_weight_banks: args.n_weight_banks,
-            n_workers: args.n_workers,
-            fifo_depth: args.fifo_depth,
-            network_delay: args.network_delay,
-            gradient_ii: args.gradient_ii,
-            gradient_latency: args.gradient_latency,
-            fold_ii: args.fold_ii,
-            fold_latency: args.fold_latency,
             alpha_0: args.alpha_0,
             decay_rate: args.decay_rate,
             stopping_criterion: args.stopping_criterion,
@@ -64,10 +55,27 @@ where
     phantom: PhantomData<(Data, Sample, Update)>,
 }
 
+fn worker<Data, Sample, Update>(
+    config: &Config,
+    sample_rx: Receiver<Sample>,
+    update_tx: Sender<Update>,
+    sgd: &impl Sgd<Data, Sample, Update>,
+) where
+    Sample: HasTime,
+    Update: HasTime + HasLoss,
+{
+    for sample in sample_rx {
+        let mut update = sgd.gradient(sample);
+        update.add_time(config.gradient_latency + config.network_delay);
+        update_tx.send(update).unwrap();
+    }
+}
+
 impl<Data, Loader, Sample, Update> Orchestrator<Data, Loader, Sample, Update>
 where
     Loader: DataLoader<Data>,
-    Update: HasLoss,
+    Sample: HasTime,
+    Update: HasTime + HasLoss,
 {
     pub fn new(config: Config, learning_rate: Arc<AtomicF32>, loader: Loader) -> Self {
         Self {
@@ -79,21 +87,11 @@ where
         }
     }
 
-    fn train_epoch(&self) {
-        let mut sample_fifos: Vec<Vec<Sample>> = vec![];
-        let mut update_fifos: Vec<Vec<Update>> = vec![];
-        for _ in 0..self.config.n_workers {
-            sample_fifos.push(Vec::with_capacity(self.config.fifo_depth));
-            update_fifos.push(Vec::with_capacity(self.config.fifo_depth));
-        }
-        loop {
-            
-        }
-    }
+    fn train_epoch(&self) {}
 
     pub fn run(self, sgd: impl Sgd<Data, Sample, Update>) {
-        let history: Vec<f32> = vec![];
-
-        for _ in 0..self.config.max_epoch {}
+        for _ in 0..self.config.max_epoch {
+            self.train_epoch();
+        }
     }
 }

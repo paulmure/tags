@@ -11,7 +11,7 @@ use crate::{
     args::Args,
     data_loader,
     data_structures::SparseMatrixView,
-    sgd::{Config, HasLoss, Orchestrator, Sgd},
+    sgd::{Config, HasLoss, HasTime, Orchestrator, Sgd},
 };
 
 struct HyperParams {
@@ -54,6 +54,7 @@ impl Weights {
 }
 
 struct Sample {
+    time: usize,
     u: usize,
     v: usize,
     z: f32,
@@ -63,7 +64,18 @@ struct Sample {
     yb: f32,
 }
 
+impl HasTime for Sample {
+    fn time(&self) -> usize {
+        self.time
+    }
+
+    fn add_time(&mut self, inc: usize) {
+        self.time += inc;
+    }
+}
+
 struct Update {
+    time: usize,
     u: usize,
     v: usize,
     xrow_grad: Array1<f32>,
@@ -71,6 +83,16 @@ struct Update {
     xb_grad: f32,
     yb_grad: f32,
     loss: f32,
+}
+
+impl HasTime for Update {
+    fn time(&self) -> usize {
+        self.time
+    }
+
+    fn add_time(&mut self, inc: usize) {
+        self.time += inc;
+    }
 }
 
 impl HasLoss for Update {
@@ -95,29 +117,70 @@ impl<SpM> Sgd<MatrixData, Sample, Update> for MatrixCompletion<SpM>
 where
     SpM: SparseMatrixView<f32>,
 {
-    fn take_samples(&self, data: Vec<MatrixData>) -> Vec<Sample> {
-        data.into_iter()
-            .map(|((u, v), z)| Sample {
-                u,
-                v,
-                z,
-                xrow: self.weights.x.slice(s![u, ..]).to_owned(),
-                ycol: self.weights.y.slice(s![v, ..]).to_owned(),
-                xb: self.weights.xb[u],
-                yb: self.weights.yb[v],
-            })
-            .collect()
+    fn take_sample(&self, time: usize, ((u, v), z): MatrixData) -> Sample {
+        Sample {
+            time,
+            u,
+            v,
+            z,
+            xrow: self.weights.x.slice(s![u, ..]).to_owned(),
+            ycol: self.weights.y.slice(s![v, ..]).to_owned(),
+            xb: self.weights.xb[u],
+            yb: self.weights.yb[v],
+        }
     }
 
-    fn gradient(&self, samples: Vec<Sample>) -> Vec<Update> {
-        samples
-            .into_iter()
-            .map(|sample| self.gradient_one(sample))
-            .collect()
+    fn gradient(&self, sample: Sample) -> Update {
+        // Forward prop
+        let nnzrow = self.data.nnz_row(sample.u);
+        let nnzcol = self.data.nnz_col(sample.v);
+
+        let e = error(
+            sample.z,
+            &sample.xrow.view(),
+            &sample.ycol.view(),
+            sample.xb,
+            sample.yb,
+            self.hyper_params.mu,
+        );
+        let x_regu = regu(&sample.xrow.view(), self.hyper_params.lam_xf, nnzrow);
+        let y_regu = regu(&sample.ycol.view(), self.hyper_params.lam_yf, nnzcol);
+        let xb_regu = sample.xb * self.hyper_params.lam_xb / (nnzrow as f32);
+        let yb_regu = sample.yb * self.hyper_params.lam_yb / (nnzcol as f32);
+
+        let loss = e.powi(2) + x_regu + y_regu + xb_regu + yb_regu;
+
+        // Backward prop
+        let learning_rate = self.learning_rate.load(Ordering::Relaxed);
+        let xb_grad = learning_rate * (e - xb_regu);
+        let yb_grad = learning_rate * (e - yb_regu);
+
+        let x_grad = learning_rate * ((e * &sample.ycol) - (x_regu * &sample.xrow));
+        let y_grad = learning_rate * ((e * &sample.xrow) - (y_regu * &sample.ycol));
+
+        Update {
+            time: sample.time(),
+            u: sample.u,
+            v: sample.v,
+            xrow_grad: x_grad,
+            ycol_grad: y_grad,
+            xb_grad,
+            yb_grad,
+            loss,
+        }
     }
 
-    fn fold(&mut self, updates: Vec<Update>) {
-        updates.into_iter().for_each(|update| self.fold_one(update));
+    fn fold(&mut self, update: Update) {
+        self.weights.xb[update.u] += update.xb_grad;
+        self.weights.yb[update.v] += update.yb_grad;
+
+        let x_idx = s![update.u, ..];
+        let new_x = &self.weights.x.slice(x_idx) + &update.xrow_grad;
+        self.weights.x.slice_mut(x_idx).assign(&new_x);
+
+        let y_idx = s![update.v, ..];
+        let new_y = &self.weights.y.slice(y_idx) + &update.ycol_grad;
+        self.weights.y.slice_mut(y_idx).assign(&new_y);
     }
 }
 
@@ -150,58 +213,6 @@ where
             data,
             learning_rate,
         }
-    }
-
-    fn gradient_one(&self, sample: Sample) -> Update {
-        // Forward prop
-        let nnzrow = self.data.nnz_row(sample.u);
-        let nnzcol = self.data.nnz_col(sample.v);
-
-        let e = error(
-            sample.z,
-            &sample.xrow.view(),
-            &sample.ycol.view(),
-            sample.xb,
-            sample.yb,
-            self.hyper_params.mu,
-        );
-        let x_regu = regu(&sample.xrow.view(), self.hyper_params.lam_xf, nnzrow);
-        let y_regu = regu(&sample.ycol.view(), self.hyper_params.lam_yf, nnzcol);
-        let xb_regu = sample.xb * self.hyper_params.lam_xb / (nnzrow as f32);
-        let yb_regu = sample.yb * self.hyper_params.lam_yb / (nnzcol as f32);
-
-        let loss = e.powi(2) + x_regu + y_regu + xb_regu + yb_regu;
-
-        // Backward prop
-        let learning_rate = self.learning_rate.load(Ordering::Relaxed);
-        let xb_grad = learning_rate * (e - xb_regu);
-        let yb_grad = learning_rate * (e - yb_regu);
-
-        let x_grad = learning_rate * ((e * &sample.ycol) - (x_regu * &sample.xrow));
-        let y_grad = learning_rate * ((e * &sample.xrow) - (y_regu * &sample.ycol));
-
-        Update {
-            u: sample.u,
-            v: sample.v,
-            xrow_grad: x_grad,
-            ycol_grad: y_grad,
-            xb_grad,
-            yb_grad,
-            loss,
-        }
-    }
-
-    fn fold_one(&mut self, update: Update) {
-        self.weights.xb[update.u] += update.xb_grad;
-        self.weights.yb[update.v] += update.yb_grad;
-
-        let x_idx = s![update.u, ..];
-        let new_x = &self.weights.x.slice(x_idx) + &update.xrow_grad;
-        self.weights.x.slice_mut(x_idx).assign(&new_x);
-
-        let y_idx = s![update.v, ..];
-        let new_y = &self.weights.y.slice(y_idx) + &update.ycol_grad;
-        self.weights.y.slice_mut(y_idx).assign(&new_y);
     }
 }
 

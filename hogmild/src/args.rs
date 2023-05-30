@@ -36,9 +36,15 @@ pub struct Args {
     /// Fifo depth in async sgd
     #[arg(long, default_value_t = 8)]
     pub fifo_depth: usize,
+    /// Time to send a sample/update
+    #[arg(long, default_value_t = 4)]
+    pub send_delay: usize,
     /// Time to deliver a sample/update
-    #[arg(long, default_value_t = 32)]
+    #[arg(long, default_value_t = 8)]
     pub network_delay: usize,
+    /// Time to receive a sample/update
+    #[arg(long, default_value_t = 4)]
+    pub receive_delay: usize,
     /// Initiation interval of gradient calculation
     #[arg(long, default_value_t = 8)]
     pub gradient_ii: usize,

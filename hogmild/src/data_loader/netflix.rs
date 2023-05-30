@@ -96,9 +96,7 @@ impl<'a> DataLoader<((usize, usize), f32)> for NetflixDataLoader<'a> {
         self.iter = self.matrix.iter_base().peekable()
     }
 
-    fn take(&mut self, n: usize) -> (Vec<((usize, usize), f32)>, bool) {
-        let data = self.iter.by_ref().take(n).collect();
-        let has_more = self.iter.peek().is_some();
-        (data, has_more)
+    fn take_one(&mut self) -> Option<((usize, usize), f32)> {
+        self.iter.next()
     }
 }

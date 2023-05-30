@@ -1,0 +1,10 @@
+GO_PREFIX = "-"
+
+FIFO_DEPTH = "fifoDepth"
+FOLD_LATENCY = "foldLatency"
+GRADIENT_LATENCY = "gradientLatency"
+NUM_SAMPLES = "nSamples"
+NUM_WEIGHT_BANKS = "nWeightBanks"
+NUM_WORKERS = "nWorkers"
+NETWORK_DELAY = "networkDelay"
+SENDING_TIME = "sendingTime"
