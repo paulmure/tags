@@ -219,7 +219,7 @@ fn make_receive_select<T>(update_rxs: &[Receiver<T>]) -> Select {
     sel
 }
 
-/// Unwrap and operation and remove the index if it is error
+/// Unwrap an operation and remove the index if it is error
 fn unwrap_oper<T>(oper: SelectedOperation, rxs: &[Receiver<T>], sel: &mut Select) -> Option<T> {
     let index = oper.index();
     match oper.recv(&rxs[index]) {
@@ -232,6 +232,7 @@ fn unwrap_oper<T>(oper: SelectedOperation, rxs: &[Receiver<T>], sel: &mut Select
 }
 
 /// Try to receive as many as we can without blocking
+/// But will not receive more than `limit`.
 fn try_receive_all<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Vec<T> {
     let mut res = vec![];
 
@@ -248,7 +249,7 @@ fn try_receive_all<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Ve
     res
 }
 
-/// Blocking until one sample is received
+/// Block until one sample is received
 fn receive_one<T>(rxs: &[Receiver<T>], sel: &mut Select) -> T {
     // Must sit in a loop because chanel closure can be received as an error.
     loop {
@@ -261,7 +262,7 @@ fn receive_one<T>(rxs: &[Receiver<T>], sel: &mut Select) -> T {
 
 /// Blocking until at least one sample is received,
 /// then try to collect as many more as we can.
-/// But will not receive more than `n_folders`.
+/// But will not receive more than `limit`.
 fn receive_at_least_one<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Vec<T> {
     let first_packet = receive_one(rxs, sel);
     let mut bonus = try_receive_all(rxs, sel, limit - 1);
