@@ -1,9 +1,12 @@
 ---
 fifoDepth: 8
+foldII: 4
 foldLatency: 32
+gradientII: 8
 gradientLatency: 64
-nSamples: 20000
-nWeightBanks: 16
+nFolders: 8
+nSamples: 512
+nWeightBanks: 8
 nWorkers: 16
 networkDelay: 16
-sendingTime: 16
+sendingTime: 4

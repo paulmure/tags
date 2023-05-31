@@ -1,7 +1,13 @@
 use clap::Parser;
 
+use crate::Tick;
+
 #[derive(Parser, Debug)]
 pub struct Args {
+    /// Number of samples to use for simulation only
+    #[arg(long, default_value_t = 128)]
+    pub num_samples: usize,
+
     // <<<< Common args across data sets and models >>>>
     /// Model hyper parameter initial learning rate
     #[arg(long, default_value_t = 0.1)]
@@ -33,30 +39,35 @@ pub struct Args {
     /// Number of worker threads in async sgd
     #[arg(long, default_value_t = 8)]
     pub n_workers: usize,
+    /// Number of gradient folds that can happen in parallel
+    #[arg(long, default_value_t = 8)]
+    pub n_folders: usize,
     /// Fifo depth in async sgd
     #[arg(long, default_value_t = 8)]
     pub fifo_depth: usize,
+
+    // <<<< Timing Related >>>>
     /// Time to send a sample/update
     #[arg(long, default_value_t = 4)]
-    pub send_delay: usize,
+    pub send_delay: Tick,
     /// Time to deliver a sample/update
     #[arg(long, default_value_t = 8)]
-    pub network_delay: usize,
+    pub network_delay: Tick,
     /// Time to receive a sample/update
     #[arg(long, default_value_t = 4)]
-    pub receive_delay: usize,
+    pub receive_delay: Tick,
     /// Initiation interval of gradient calculation
     #[arg(long, default_value_t = 8)]
-    pub gradient_ii: usize,
+    pub gradient_ii: Tick,
     /// Latency of calculating one gradient
     #[arg(long, default_value_t = 32)]
-    pub gradient_latency: usize,
+    pub gradient_latency: Tick,
     /// Initiation interval of folding gradient updates
     #[arg(long, default_value_t = 8)]
-    pub fold_ii: usize,
+    pub fold_ii: Tick,
     /// Latency of folding one gradient update
     #[arg(long, default_value_t = 32)]
-    pub fold_latency: usize,
+    pub fold_latency: Tick,
 
     // <<<< Matrix completion specific >>>>
     /// Number of features in the decomposition matrix

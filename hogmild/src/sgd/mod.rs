@@ -1,11 +1,10 @@
 use atomic_float::AtomicF32;
-use crossbeam::channel::{bounded, Receiver, Sender};
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{args::Args, data_loader::DataLoader};
 
 pub mod matrix_completion;
-mod schedule_simulation;
+pub mod schedule_simulation;
 
 pub trait HasLoss {
     fn loss(&self) -> f32;
@@ -53,22 +52,6 @@ where
     epoch: usize,
     loader: Loader,
     phantom: PhantomData<(Data, Sample, Update)>,
-}
-
-fn worker<Data, Sample, Update>(
-    config: &Config,
-    sample_rx: Receiver<Sample>,
-    update_tx: Sender<Update>,
-    sgd: &impl Sgd<Data, Sample, Update>,
-) where
-    Sample: HasTime,
-    Update: HasTime + HasLoss,
-{
-    for sample in sample_rx {
-        let mut update = sgd.gradient(sample);
-        update.add_time(config.gradient_latency + config.network_delay);
-        update_tx.send(update).unwrap();
-    }
 }
 
 impl<Data, Loader, Sample, Update> Orchestrator<Data, Loader, Sample, Update>

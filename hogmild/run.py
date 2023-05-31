@@ -31,17 +31,7 @@ def make_args_list(arg_names: list[str], prefix: str, config):
 
 
 def run_simulator(config) -> Schedule:
-    arg_names = [
-        cf.FIFO_DEPTH,
-        cf.FOLD_LATENCY,
-        cf.GRADIENT_LATENCY,
-        cf.NUM_SAMPLES,
-        cf.NUM_WEIGHT_BANKS,
-        cf.NUM_WORKERS,
-        cf.NETWORK_DELAY,
-        cf.SENDING_TIME,
-    ]
-    args = [SIMULATOR_PATH] + make_args_list(arg_names, cf.GO_PREFIX, config)
+    args = [SIMULATOR_PATH] + make_args_list(cf.GO_ARGS, cf.GO_PREFIX, config)
     output = subprocess.run(args, capture_output=True)
     return parse_schedule(output.stdout.decode("utf-8"))
 
