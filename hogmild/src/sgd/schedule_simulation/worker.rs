@@ -10,6 +10,7 @@ pub fn run_worker(args: &Args, sample_rx: Receiver<Sample>, update_tx: Sender<Sa
         let arrival_time = args.send_delay + args.network_delay + args.gradient_latency + tick;
         sample.time = arrival_time;
         update_tx.send(sample).unwrap();
+
         tick += args.gradient_ii;
     }
 }

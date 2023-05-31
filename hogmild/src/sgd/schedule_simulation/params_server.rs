@@ -1,5 +1,4 @@
-use crossbeam::channel::{Receiver, Select, Sender};
-use debug_print::debug_println;
+use crossbeam::channel::{Receiver, Select, SelectedOperation, Sender};
 use std::collections::VecDeque;
 
 use crate::{
@@ -137,14 +136,7 @@ impl<'a> ParamsServerState<'a> {
         }
 
         // TODO: peek from every channel and choose the lowest one
-        let mut updates: Vec<Sample> = vec![];
-        while let Ok(oper) = recv_sel.try_select() {
-            let index = oper.index();
-            updates.push(oper.recv(&update_rxs[index]).unwrap());
-            if updates.len() == self.args.n_folders {
-                break;
-            }
-        }
+        let updates = try_receive_all(update_rxs, recv_sel, self.args.n_folders);
 
         self.fold_gradient(updates);
     }
@@ -153,22 +145,7 @@ impl<'a> ParamsServerState<'a> {
     /// for the simulated current timestamps of workers
     fn receive_all_updates(&mut self, update_rxs: &[Receiver<Sample>], recv_sel: &mut Select) {
         while !self.finished_receiving() {
-            debug_println!("{} updates received", self.update_logs.len());
-            let mut updates: Vec<Sample> = vec![];
-            let oper = recv_sel.select();
-            let index = oper.index();
-            updates.push(oper.recv(&update_rxs[index]).unwrap());
-            debug_println!("one new updates");
-
-            while updates.len() < self.args.n_folders {
-                if let Ok(oper) = recv_sel.try_select() {
-                    let index = oper.index();
-                    updates.push(oper.recv(&update_rxs[index]).unwrap());
-                } else {
-                    break;
-                }
-            }
-
+            let updates = receive_at_least_one(update_rxs, recv_sel, self.args.n_folders);
             debug_assert!(!updates.is_empty());
 
             self.tick = max_sample_time(&updates);
@@ -215,13 +192,11 @@ impl<'a> ParamsServerState<'a> {
     fn run_server(&mut self, sample_txs: Vec<Sender<Sample>>, update_rxs: Vec<Receiver<Sample>>) {
         let mut recv_sel = make_receive_select(&update_rxs);
 
-        // Must move `sample_txs` to a function to ensure they are dropped
-        // after all samples are sent
+        // Move `sample_txs` to a function ensure they are dropped after all samples are sent.
+        // This is not necessary, but kinda nice to shut down workers ASAP.
         self.sending_phase(sample_txs, &update_rxs, &mut recv_sel);
 
-        debug_println!("sent all samples");
         self.receive_all_updates(&update_rxs, &mut recv_sel);
-        debug_println!("received all updates");
     }
 }
 
@@ -236,10 +211,60 @@ pub fn run_params_server(
     state.update_logs
 }
 
-fn make_receive_select(update_rxs: &[Receiver<Sample>]) -> Select {
+fn make_receive_select<T>(update_rxs: &[Receiver<T>]) -> Select {
     let mut sel = Select::new();
     for r in update_rxs {
         sel.recv(r);
     }
     sel
+}
+
+/// Unwrap and operation and remove the index if it is error
+fn unwrap_oper<T>(oper: SelectedOperation, rxs: &[Receiver<T>], sel: &mut Select) -> Option<T> {
+    let index = oper.index();
+    match oper.recv(&rxs[index]) {
+        Ok(packet) => Some(packet),
+        Err(_) => {
+            sel.remove(index);
+            None
+        }
+    }
+}
+
+/// Try to receive as many as we can without blocking
+fn try_receive_all<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Vec<T> {
+    let mut res = vec![];
+
+    while res.len() < limit {
+        if let Ok(oper) = sel.try_select() {
+            if let Some(packet) = unwrap_oper(oper, rxs, sel) {
+                res.push(packet);
+            }
+        } else {
+            break;
+        }
+    }
+
+    res
+}
+
+/// Blocking until one sample is received
+fn receive_one<T>(rxs: &[Receiver<T>], sel: &mut Select) -> T {
+    // Must sit in a loop because chanel closure can be received as an error.
+    loop {
+        let oper = sel.select();
+        if let Some(packet) = unwrap_oper(oper, rxs, sel) {
+            return packet;
+        }
+    }
+}
+
+/// Blocking until at least one sample is received,
+/// then try to collect as many more as we can.
+/// But will not receive more than `n_folders`.
+fn receive_at_least_one<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Vec<T> {
+    let first_packet = receive_one(rxs, sel);
+    let mut bonus = try_receive_all(rxs, sel, limit - 1);
+    bonus.push(first_packet);
+    bonus
 }
