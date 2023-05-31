@@ -1,12 +1,65 @@
 ---
-fifoDepth: 8
-foldII: 4
-foldLatency: 32
-gradientII: 8
-gradientLatency: 64
-nFolders: 8
-nSamples: 512
-nWeightBanks: 8
-nWorkers: 16
-networkDelay: 16
-sendingTime: 4
+# Only run the simulation
+simulation_only: false
+# Number of samples to use for simulation only
+num_samples: 1000000
+
+# <<<< Common args across data sets and models >>>>
+# Model hyper parameter initial learning rate
+alpha_0: 0.1
+# Model hyper parameter initial learning rate
+decay_rate: 5
+# Maximum number of epochs to run for
+max_epoch: 1000
+# When to stop training
+stopping_criterion: 0.001
+# Whether or not to do hogwild
+hogwild: true
+# The model to use
+model: "mat_comp"
+# The dataset to use
+dataset: "netflix"
+# RNG seed for weights initialization
+rng_seed: 4102000
+# Number of banks to separate the weights into
+n_weight_banks: 8
+# Number of worker threads in async sgd
+n_workers: 8
+# Number of gradient folds that can happen in parallel
+n_folders: 8
+# Fifo depth in async sgd
+fifo_depth: 8
+
+# <<<< Timing Related >>>>
+# Time to send a sample/update
+send_delay: 4
+# Time to deliver a sample/update
+network_delay: 8
+# Time to receive a sample/update
+receive_delay: 4
+# Initiation interval of gradient calculation
+gradient_ii: 8
+# Latency of calculating one gradient
+gradient_latency: 32
+# Initiation interval of folding gradient updates
+fold_ii: 8
+# Latency of folding one gradient update
+fold_latency: 32
+
+# <<<< Matrix completion specific >>>>
+# Number of features in the decomposition matrix
+n_features: 16
+# Model hyper parameter mu
+mu: 1
+# Model hyper parameter lambda_xf
+lam_xf: 1
+# Model hyper parameter lambda_yf
+lam_yf: 1
+# Model hyper parameter lambda_xb
+lam_xb: 1
+# Model hyper parameter lambda_yb
+lam_yb: 1
+
+# <<<< Netflix dataset specific >>>>
+# Number of movies to load
+n_movies: 128

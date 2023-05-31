@@ -4,6 +4,9 @@ use crate::Tick;
 
 #[derive(Parser, Debug)]
 pub struct Args {
+    /// Only run the simulation
+    #[arg(long, default_value_t = false)]
+    pub simulation_only: bool,
     /// Number of samples to use for simulation only
     #[arg(long, default_value_t = 128)]
     pub num_samples: usize,
