@@ -1,11 +1,6 @@
-use crossbeam::channel::{Receiver, Select, SelectedOperation, Sender};
 use std::collections::VecDeque;
 
-use crate::{
-    args::Args,
-    sgd::schedule_simulation::{max_sample_time, Sample},
-    Tick,
-};
+use super::*;
 
 struct ParamsServerState<'a> {
     tick: Tick,
@@ -35,9 +30,9 @@ impl<'a> ParamsServerState<'a> {
             next_sample: 0,
             curr_weight_version: 0,
             bank_states: VecDeque::with_capacity(args.n_weight_banks),
-            weight_version_queue: VecDeque::new(),
+            weight_version_queue: VecDeque::with_capacity(args.n_folders),
             fold_ready_at: 0,
-            update_logs: vec![],
+            update_logs: Vec::with_capacity(num_samples),
         }
     }
 
@@ -71,34 +66,17 @@ impl<'a> ParamsServerState<'a> {
         }
     }
 
-    fn send_sample(&mut self, sample_tx: &Sender<Sample>) {
-        debug_assert!(self.has_free_weight_banks());
-
-        let arrival_time = self.tick + self.args.send_delay + self.args.network_delay;
-        let sample = Sample {
-            time: arrival_time,
-            sample_id: self.next_sample,
-            weight_version: self.curr_weight_version,
-        };
-        sample_tx.send(sample).unwrap();
-
-        self.next_sample += 1;
-        let next_ready_at = self.tick + self.args.send_delay;
-        self.bank_states.push_back(next_ready_at);
-    }
-
     /// The latest weight version we know of in the future.
-    fn spear_head_weight_version(&self) -> usize {
-        match self.weight_version_queue.back() {
-            Some(&(_, v)) => v,
-            None => self.curr_weight_version,
-        }
+    fn spearhead_weight_version(&self) -> usize {
+        self.weight_version_queue
+            .back()
+            .map_or(self.curr_weight_version, |&(_, v)| v)
     }
 
     /// Add a new weight version to be incorporated in the future.
     fn push_new_weight_version(&mut self, num_updates: usize) {
         let update_at_tick = self.tick + self.args.fold_latency;
-        let new_version = self.spear_head_weight_version() + num_updates;
+        let new_version = self.spearhead_weight_version() + num_updates;
         self.weight_version_queue
             .push_back((update_at_tick, new_version));
     }
@@ -115,6 +93,54 @@ impl<'a> ParamsServerState<'a> {
         }
     }
 
+    fn send_next_sample(&mut self, sample_tx: &Sender<Sample>) {
+        debug_assert!(self.has_free_weight_banks() && self.has_more_samples());
+
+        let arrival_time = self.tick + self.args.send_delay + self.args.network_delay;
+        let sample = Sample {
+            time: arrival_time,
+            sample_id: self.next_sample,
+            weight_version: self.curr_weight_version,
+        };
+        sample_tx.send(sample).unwrap();
+
+        self.next_sample += 1;
+        let next_ready_at = self.tick + self.args.send_delay;
+        self.bank_states.push_back(next_ready_at);
+    }
+
+    fn try_send_samples(&mut self, sample_txs: &[Sender<Sample>]) {
+        if !self.has_free_weight_banks() {
+            return;
+        }
+
+        for sample_tx in sample_txs {
+            if sample_tx.is_full() {
+                continue;
+            }
+
+            self.send_next_sample(sample_tx);
+            if !self.can_send() {
+                return;
+            }
+        }
+    }
+
+    fn send_all_samples(
+        &mut self,
+        sample_txs: Vec<Sender<Sample>>,
+        update_rxs: &[Receiver<Sample>],
+        recv_sel: &mut Select,
+    ) {
+        while self.has_more_samples() {
+            self.update_weight_version();
+            self.clear_free_banks();
+            self.try_send_samples(&sample_txs);
+            self.try_receive_samples(update_rxs, recv_sel);
+            self.tick += 1;
+        }
+    }
+
     fn fold_gradient(&mut self, updates: Vec<Sample>) {
         debug_assert!(self.can_fold());
         debug_assert!(updates.len() <= self.args.n_folders);
@@ -122,10 +148,10 @@ impl<'a> ParamsServerState<'a> {
         self.push_new_weight_version(updates.len());
         self.fold_ready_at = self.tick + self.args.fold_ii;
 
-        updates.into_iter().for_each(|mut update| {
-            update.time += self.args.fold_latency;
+        for mut update in updates {
+            update.time = self.tick + self.args.fold_latency;
             self.update_logs.push(update);
-        });
+        }
     }
 
     /// TODO: This receive granularity is not right, this does not account
@@ -157,46 +183,27 @@ impl<'a> ParamsServerState<'a> {
         }
     }
 
-    fn send_samples(&mut self, sample_txs: &[Sender<Sample>]) {
-        if !self.has_free_weight_banks() {
-            return;
-        }
-
-        for sample_tx in sample_txs {
-            if sample_tx.is_full() {
-                continue;
-            }
-
-            self.send_sample(sample_tx);
-            if !self.can_send() {
-                return;
-            }
-        }
+    fn cleanup(&mut self) {
+        self.tick = max_sample_time(&self.update_logs);
+        self.update_weight_version();
+        assert!(
+            self.weight_version_queue.is_empty()
+                && self.curr_weight_version == self.num_samples
+                && self.update_logs.len() == self.num_samples
+        );
     }
 
-    fn sending_phase(
+    fn run_server(
         &mut self,
         sample_txs: Vec<Sender<Sample>>,
-        update_rxs: &[Receiver<Sample>],
-        recv_sel: &mut Select,
-    ) {
-        while self.has_more_samples() {
-            self.update_weight_version();
-            self.clear_free_banks();
-            self.send_samples(&sample_txs);
-            self.try_receive_samples(update_rxs, recv_sel);
-            self.tick += 1;
-        }
-    }
-
-    fn run_server(&mut self, sample_txs: Vec<Sender<Sample>>, update_rxs: Vec<Receiver<Sample>>) {
+        update_rxs: Vec<Receiver<Sample>>,
+    ) -> Tick {
         let mut recv_sel = make_receive_select(&update_rxs);
-
-        // Move `sample_txs` to a function ensure they are dropped after all samples are sent.
-        // This is not necessary, but kinda nice to shut down workers ASAP.
-        self.sending_phase(sample_txs, &update_rxs, &mut recv_sel);
-
+        self.send_all_samples(sample_txs, &update_rxs, &mut recv_sel);
         self.receive_all_updates(&update_rxs, &mut recv_sel);
+
+        self.cleanup();
+        self.tick
     }
 }
 
@@ -205,67 +212,8 @@ pub fn run_params_server(
     num_samples: usize,
     sample_txs: Vec<Sender<Sample>>,
     update_rxs: Vec<Receiver<Sample>>,
-) -> Vec<Sample> {
+) -> (Tick, Vec<Sample>) {
     let mut state = ParamsServerState::new(args, num_samples);
-    state.run_server(sample_txs, update_rxs);
-    state.update_logs
-}
-
-fn make_receive_select<T>(update_rxs: &[Receiver<T>]) -> Select {
-    let mut sel = Select::new();
-    for r in update_rxs {
-        sel.recv(r);
-    }
-    sel
-}
-
-/// Unwrap an operation and remove the index if it is error
-fn unwrap_oper<T>(oper: SelectedOperation, rxs: &[Receiver<T>], sel: &mut Select) -> Option<T> {
-    let index = oper.index();
-    match oper.recv(&rxs[index]) {
-        Ok(packet) => Some(packet),
-        Err(_) => {
-            sel.remove(index);
-            None
-        }
-    }
-}
-
-/// Try to receive as many as we can without blocking
-/// But will not receive more than `limit`.
-fn try_receive_all<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Vec<T> {
-    let mut res = vec![];
-
-    while res.len() < limit {
-        if let Ok(oper) = sel.try_select() {
-            if let Some(packet) = unwrap_oper(oper, rxs, sel) {
-                res.push(packet);
-            }
-        } else {
-            break;
-        }
-    }
-
-    res
-}
-
-/// Block until one sample is received
-fn receive_one<T>(rxs: &[Receiver<T>], sel: &mut Select) -> T {
-    // Must sit in a loop because chanel closure can be received as an error.
-    loop {
-        let oper = sel.select();
-        if let Some(packet) = unwrap_oper(oper, rxs, sel) {
-            return packet;
-        }
-    }
-}
-
-/// Blocking until at least one sample is received,
-/// then try to collect as many more as we can.
-/// But will not receive more than `limit`.
-fn receive_at_least_one<T>(rxs: &[Receiver<T>], sel: &mut Select, limit: usize) -> Vec<T> {
-    let first_packet = receive_one(rxs, sel);
-    let mut bonus = try_receive_all(rxs, sel, limit - 1);
-    bonus.push(first_packet);
-    bonus
+    let cycle_count = state.run_server(sample_txs, update_rxs);
+    (cycle_count, state.update_logs)
 }

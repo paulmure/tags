@@ -23,7 +23,7 @@ struct HyperParams {
 }
 
 impl HyperParams {
-    fn new(args: Args) -> Self {
+    fn new(args: &Args) -> Self {
         Self {
             mu: args.mu,
             lam_xf: args.lam_xf,
@@ -216,7 +216,7 @@ where
     }
 }
 
-fn run_matrix_completion(args: Args) {
+fn run_matrix_completion(args: &Args) {
     let matrix = data_loader::netflix::load_netflix_dataset(args.n_movies);
     let data_loader = data_loader::netflix::NetflixDataLoader::new(&matrix);
     let config = Config::new(&args);
@@ -235,9 +235,9 @@ fn run_matrix_completion(args: Args) {
     orchestrator.run(mat_comp);
 }
 
-pub fn run(args: Args) {
+pub fn run(args: &Args) {
     match args.dataset.as_str() {
-        "netflix" => run_matrix_completion(args),
+        "netflix" => run_matrix_completion(&args),
         d => {
             panic!("Unknown dataset {}", d)
         }

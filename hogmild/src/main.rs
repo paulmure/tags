@@ -15,13 +15,16 @@ pub type Tick = u64;
 static ARGS: Lazy<Args> = Lazy::new(|| Args::parse());
 
 fn main() {
-    let logs = run_simulation(&ARGS, ARGS.num_samples);
-    // logs.into_iter()
-    //     .for_each(|s| println!("{}, {}", s.time, s.weight_version));
-    let max_time = logs.into_iter().map(|s| s.time).max().unwrap();
-    println!("{}", max_time);
-    // match args.model.as_str() {
-    //     "mat_comp" => matrix_completion::run(args),
-    //     m => panic!("Unknown model: {}", m),
-    // }
+    if ARGS.simulation_only {
+        let (cycle_count, _) = run_simulation(&ARGS, ARGS.num_samples);
+        println!("{}", cycle_count);
+        // logs.into_iter()
+        //     .for_each(|s| println!("{}, {}", s.time, s.weight_version));
+        return;
+    }
+
+    match ARGS.model.as_str() {
+        "mat_comp" => matrix_completion::run(&ARGS),
+        m => panic!("Unknown model: {}", m),
+    }
 }

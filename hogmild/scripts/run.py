@@ -57,7 +57,11 @@ def sweep_num_workers(min: int, max: int, step: int, config):
         runtime = end_time - start_time
 
         latency = int(output)
-        print(f"{n:>02d} workers, CPU: {runtime:.2f} secs, RDU: {latency}")
+        print(
+            f"{n:>02d} workers,",
+            f"CPU: {runtime:.2f} seconds,",
+            f"RDU: {latency} cycles",
+        )
 
         workers.append(n)
         latencies.append(latency)

@@ -1,5 +1,7 @@
 import os
 
+# Only run the simulation
+SIMULATION_ONLY = "simulation_only"
 # Number of samples to use for simulation only
 NUM_SAMPLES = "num_samples"
 
@@ -64,6 +66,7 @@ LAM_YB = "lam_yb"
 N_MOVIES = "n_movies"
 
 RUST_ARGS = [
+    SIMULATION_ONLY,
     NUM_SAMPLES,
     ALPHA_0,
     DECAY_RATE,
