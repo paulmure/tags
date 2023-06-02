@@ -9,8 +9,6 @@ mod sgd;
 use args::Args;
 use sgd::{matrix_completion, schedule_simulation::run_simulation};
 
-pub type Tick = u64;
-
 #[allow(clippy::redundant_closure)]
 static ARGS: Lazy<Args> = Lazy::new(|| Args::parse());
 

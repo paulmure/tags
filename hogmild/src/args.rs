@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use crate::Tick;
+use crate::sgd::schedule_simulation::Tick;
 
 #[derive(Parser, Debug)]
 pub struct Args {

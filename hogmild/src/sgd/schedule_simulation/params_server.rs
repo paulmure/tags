@@ -93,7 +93,7 @@ impl<'a> ParamsServerState<'a> {
         }
     }
 
-    fn send_next_sample(&mut self, sample_tx: &Sender<Sample>) {
+    fn send_next_sample(&mut self) -> Sample {
         debug_assert!(self.has_free_weight_banks() && self.has_more_samples());
 
         let arrival_time = self.tick + self.args.send_delay + self.args.network_delay;
@@ -102,44 +102,49 @@ impl<'a> ParamsServerState<'a> {
             sample_id: self.next_sample,
             weight_version: self.curr_weight_version,
         };
-        sample_tx.send(sample).unwrap();
 
         self.next_sample += 1;
         let next_ready_at = self.tick + self.args.send_delay;
         self.bank_states.push_back(next_ready_at);
+
+        sample
     }
 
-    fn try_send_samples(&mut self, sample_txs: &[Sender<Sample>]) {
-        if !self.has_free_weight_banks() {
-            return;
+    fn try_send_samples(&mut self, sample_txs: &[VecDeque<Sample>]) -> Vec<(usize, Sample)> {
+        if !self.can_send() {
+            return vec![];
         }
 
-        for sample_tx in sample_txs {
-            if sample_tx.is_full() {
+        let mut res = vec![];
+
+        for (i, sample_tx) in sample_txs.iter().enumerate() {
+            if sample_tx.len() == self.args.fifo_depth {
                 continue;
             }
 
-            self.send_next_sample(sample_tx);
+            res.push((i, self.send_next_sample()));
             if !self.can_send() {
-                return;
+                return res;
             }
         }
+
+        res
     }
 
-    fn send_all_samples(
-        &mut self,
-        sample_txs: Vec<Sender<Sample>>,
-        update_rxs: &[Receiver<Sample>],
-        recv_sel: &mut Select,
-    ) {
-        while self.has_more_samples() {
-            self.update_weight_version();
-            self.clear_free_banks();
-            self.try_send_samples(&sample_txs);
-            self.try_receive_samples(update_rxs, recv_sel);
-            self.tick += 1;
-        }
-    }
+    // fn send_all_samples(
+    //     &mut self,
+    //     sample_txs: Vec<Sender<Sample>>,
+    //     update_rxs: &[Receiver<Sample>],
+    //     recv_sel: &mut Select,
+    // ) {
+    //     while self.has_more_samples() {
+    //         self.update_weight_version();
+    //         self.clear_free_banks();
+    //         self.try_send_samples(&sample_txs);
+    //         self.try_receive_samples(update_rxs, recv_sel);
+    //         self.tick += 1;
+    //     }
+    // }
 
     fn fold_gradient(&mut self, updates: Vec<Sample>) {
         debug_assert!(self.can_fold());
@@ -154,15 +159,19 @@ impl<'a> ParamsServerState<'a> {
         }
     }
 
-    /// TODO: This receive granularity is not right, this does not account
-    /// for the simulated current timestamps of workers
-    fn try_receive_samples(&mut self, update_rxs: &[Receiver<Sample>], recv_sel: &mut Select) {
+    fn do_nothing(&self, x: &Sample) {}
+    fn do_nothing_mut(&self, x: &mut Sample) {}
+
+    fn try_receive_samples(&mut self, update_rxs: &mut [VecDeque<Sample>]) {
         if !self.can_fold() {
             return;
         }
 
-        // TODO: peek from every channel and choose the lowest one
-        let updates = try_receive_all(update_rxs, recv_sel, self.args.n_folders);
+        let updates = update_rxs
+            .iter_mut()
+            .filter(|rx| rx.front().map(|s| self.tick >= s.time).unwrap_or(false))
+            .map(|rx| rx.pop_front().unwrap())
+            .collect();
 
         self.fold_gradient(updates);
     }
@@ -193,17 +202,27 @@ impl<'a> ParamsServerState<'a> {
         );
     }
 
-    fn run_server(
-        &mut self,
-        sample_txs: Vec<Sender<Sample>>,
-        update_rxs: Vec<Receiver<Sample>>,
-    ) -> Tick {
-        let mut recv_sel = make_receive_select(&update_rxs);
-        self.send_all_samples(sample_txs, &update_rxs, &mut recv_sel);
-        self.receive_all_updates(&update_rxs, &mut recv_sel);
+    // fn run_server(
+    //     &mut self,
+    //     sample_txs: Vec<Sender<Sample>>,
+    //     update_rxs: Vec<Receiver<Sample>>,
+    // ) -> Tick {
+    //     let mut recv_sel = make_receive_select(&update_rxs);
+    //     self.send_all_samples(sample_txs, &update_rxs, &mut recv_sel);
+    //     self.receive_all_updates(&update_rxs, &mut recv_sel);
+    //
+    //     self.cleanup();
+    //     self.tick
+    // }
 
-        self.cleanup();
-        self.tick
+    fn tick(
+        &mut self,
+        sample_txs: &[VecDeque<Sample>],
+        update_rxs: &[VecDeque<Sample>],
+    ) -> Vec<(usize, Sample)> {
+        let samples = self.try_send_samples(sample_txs);
+
+        samples
     }
 }
 
@@ -213,7 +232,7 @@ pub fn run_params_server(
     sample_txs: Vec<Sender<Sample>>,
     update_rxs: Vec<Receiver<Sample>>,
 ) -> (Tick, Vec<Sample>) {
-    let mut state = ParamsServerState::new(args, num_samples);
-    let cycle_count = state.run_server(sample_txs, update_rxs);
-    (cycle_count, state.update_logs)
+    let state = ParamsServerState::new(args, num_samples);
+    // let cycle_count = state.run_server(sample_txs, update_rxs);
+    (0, state.update_logs)
 }

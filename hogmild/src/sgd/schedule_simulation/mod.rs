@@ -4,14 +4,22 @@ use std::cmp::max;
 mod channel;
 mod params_server;
 
-use crate::{args::Args, sgd::schedule_simulation::params_server::run_params_server, Tick};
-
-trait Node {
-    fn advance_to_time(&mut self, time: Tick);
-}
+use crate::{args::Args, sgd::schedule_simulation::params_server::run_params_server};
 
 trait HasTime {
     fn time(&self) -> Tick;
+}
+
+trait Node: HasTime {
+    fn advance_to_time(&mut self, time: Tick);
+}
+
+pub type Tick = u64;
+
+impl HasTime for Tick {
+    fn time(&self) -> Tick {
+        *self
+    }
 }
 
 #[derive(Clone, Copy)]
