@@ -35,8 +35,8 @@ def parse_args():
 
 
 def plot_latency(xs: list[int], xlabel: str, latencies: list[int]):
-    plt.figure(figsize=(20, 10))
-    plt.plot(xs, latencies)
+    plt.figure(figsize=(14, 7))
+    plt.loglog(xs, latencies)
     plt.xlabel(xlabel)
     plt.ylabel("Latency")
     plt.show()
@@ -73,7 +73,7 @@ def main():
     args = parse_args()
     with open(args.config_path, "r") as f:
         config = yaml.safe_load(f)
-    sweep_num_workers(1, 64, 1, config)
+    sweep_num_workers(1, 129, 1, config)
 
 
 if __name__ == "__main__":
