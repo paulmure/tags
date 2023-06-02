@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use super::*;
 
-struct ParamsServerState<'a> {
+pub struct ParamsServerState<'a> {
     tick: Tick,
     args: &'a Args,
     num_samples: usize,
@@ -22,7 +22,7 @@ struct ParamsServerState<'a> {
 }
 
 impl<'a> ParamsServerState<'a> {
-    fn new(args: &'a Args, num_samples: usize) -> Self {
+    pub fn new(args: &'a Args, num_samples: usize) -> Self {
         Self {
             tick: 0,
             args,
@@ -34,6 +34,14 @@ impl<'a> ParamsServerState<'a> {
             fold_ready_at: 0,
             update_logs: Vec::with_capacity(num_samples),
         }
+    }
+
+    pub fn curr_tick(&self) -> Tick {
+        self.tick
+    }
+
+    pub fn get_update_logs(self) -> Vec<Sample> {
+        self.update_logs
     }
 
     fn has_free_weight_banks(&self) -> bool {
@@ -52,7 +60,7 @@ impl<'a> ParamsServerState<'a> {
         self.tick >= self.fold_ready_at
     }
 
-    fn finished_receiving(&self) -> bool {
+    pub fn finished_receiving(&self) -> bool {
         self.update_logs.len() == self.num_samples
     }
 
@@ -159,40 +167,41 @@ impl<'a> ParamsServerState<'a> {
         }
     }
 
-    fn do_nothing(&self, x: &Sample) {}
-    fn do_nothing_mut(&self, x: &mut Sample) {}
-
     fn try_receive_samples(&mut self, update_rxs: &mut [VecDeque<Sample>]) {
         if !self.can_fold() {
             return;
         }
 
-        let updates = update_rxs
-            .iter_mut()
-            .filter(|rx| rx.front().map(|s| self.tick >= s.time).unwrap_or(false))
-            .map(|rx| rx.pop_front().unwrap())
-            .collect();
-
+        let mut updates = vec![];
+        for update_rx in update_rxs {
+            let can_pop = update_rx
+                .front()
+                .map(|s| self.tick >= s.time)
+                .unwrap_or(false);
+            if can_pop {
+                updates.push(update_rx.pop_front().unwrap());
+            }
+        }
         self.fold_gradient(updates);
     }
 
-    /// TODO: This receive granularity is not right, this does not account
-    /// for the simulated current timestamps of workers
-    fn receive_all_updates(&mut self, update_rxs: &[Receiver<Sample>], recv_sel: &mut Select) {
-        while !self.finished_receiving() {
-            let updates = receive_at_least_one(update_rxs, recv_sel, self.args.n_folders);
-            debug_assert!(!updates.is_empty());
+    // /// TODO: This receive granularity is not right, this does not account
+    // /// for the simulated current timestamps of workers
+    // fn receive_all_updates(&mut self, update_rxs: &[Receiver<Sample>], recv_sel: &mut Select) {
+    //     while !self.finished_receiving() {
+    //         let updates = receive_at_least_one(update_rxs, recv_sel, self.args.n_folders);
+    //         debug_assert!(!updates.is_empty());
+    //
+    //         self.tick = max_sample_time(&updates);
+    //         if !self.can_fold() {
+    //             self.tick = self.fold_ready_at;
+    //         }
+    //
+    //         self.fold_gradient(updates);
+    //     }
+    // }
 
-            self.tick = max_sample_time(&updates);
-            if !self.can_fold() {
-                self.tick = self.fold_ready_at;
-            }
-
-            self.fold_gradient(updates);
-        }
-    }
-
-    fn cleanup(&mut self) {
+    pub fn cleanup(&mut self) {
         self.tick = max_sample_time(&self.update_logs);
         self.update_weight_version();
         assert!(
@@ -215,24 +224,27 @@ impl<'a> ParamsServerState<'a> {
     //     self.tick
     // }
 
-    fn tick(
+    pub fn tick_server(
         &mut self,
         sample_txs: &[VecDeque<Sample>],
-        update_rxs: &[VecDeque<Sample>],
+        update_rxs: &mut [VecDeque<Sample>],
     ) -> Vec<(usize, Sample)> {
+        self.clear_free_banks();
+        self.update_weight_version();
         let samples = self.try_send_samples(sample_txs);
-
+        self.try_receive_samples(update_rxs);
+        self.tick += 1;
         samples
     }
 }
 
-pub fn run_params_server(
-    args: &Args,
-    num_samples: usize,
-    sample_txs: Vec<Sender<Sample>>,
-    update_rxs: Vec<Receiver<Sample>>,
-) -> (Tick, Vec<Sample>) {
-    let state = ParamsServerState::new(args, num_samples);
-    // let cycle_count = state.run_server(sample_txs, update_rxs);
-    (0, state.update_logs)
-}
+// pub fn run_params_server(
+//     args: &Args,
+//     num_samples: usize,
+//     sample_txs: Vec<Sender<Sample>>,
+//     update_rxs: Vec<Receiver<Sample>>,
+// ) -> (Tick, Vec<Sample>) {
+//     let state = ParamsServerState::new(args, num_samples);
+//     // let cycle_count = state.run_server(sample_txs, update_rxs);
+//     (0, state.update_logs)
+// }
