@@ -139,21 +139,6 @@ impl<'a> ParamsServerState<'a> {
         res
     }
 
-    // fn send_all_samples(
-    //     &mut self,
-    //     sample_txs: Vec<Sender<Sample>>,
-    //     update_rxs: &[Receiver<Sample>],
-    //     recv_sel: &mut Select,
-    // ) {
-    //     while self.has_more_samples() {
-    //         self.update_weight_version();
-    //         self.clear_free_banks();
-    //         self.try_send_samples(&sample_txs);
-    //         self.try_receive_samples(update_rxs, recv_sel);
-    //         self.tick += 1;
-    //     }
-    // }
-
     fn fold_gradient(&mut self, updates: Vec<Sample>) {
         debug_assert!(self.can_fold());
         debug_assert!(updates.len() <= self.args.n_folders);
@@ -185,22 +170,6 @@ impl<'a> ParamsServerState<'a> {
         self.fold_gradient(updates);
     }
 
-    // /// TODO: This receive granularity is not right, this does not account
-    // /// for the simulated current timestamps of workers
-    // fn receive_all_updates(&mut self, update_rxs: &[Receiver<Sample>], recv_sel: &mut Select) {
-    //     while !self.finished_receiving() {
-    //         let updates = receive_at_least_one(update_rxs, recv_sel, self.args.n_folders);
-    //         debug_assert!(!updates.is_empty());
-    //
-    //         self.tick = max_sample_time(&updates);
-    //         if !self.can_fold() {
-    //             self.tick = self.fold_ready_at;
-    //         }
-    //
-    //         self.fold_gradient(updates);
-    //     }
-    // }
-
     pub fn cleanup(&mut self) {
         self.tick = max_sample_time(&self.update_logs);
         self.update_weight_version();
@@ -210,19 +179,6 @@ impl<'a> ParamsServerState<'a> {
                 && self.update_logs.len() == self.num_samples
         );
     }
-
-    // fn run_server(
-    //     &mut self,
-    //     sample_txs: Vec<Sender<Sample>>,
-    //     update_rxs: Vec<Receiver<Sample>>,
-    // ) -> Tick {
-    //     let mut recv_sel = make_receive_select(&update_rxs);
-    //     self.send_all_samples(sample_txs, &update_rxs, &mut recv_sel);
-    //     self.receive_all_updates(&update_rxs, &mut recv_sel);
-    //
-    //     self.cleanup();
-    //     self.tick
-    // }
 
     pub fn tick_server(
         &mut self,
@@ -237,14 +193,3 @@ impl<'a> ParamsServerState<'a> {
         samples
     }
 }
-
-// pub fn run_params_server(
-//     args: &Args,
-//     num_samples: usize,
-//     sample_txs: Vec<Sender<Sample>>,
-//     update_rxs: Vec<Receiver<Sample>>,
-// ) -> (Tick, Vec<Sample>) {
-//     let state = ParamsServerState::new(args, num_samples);
-//     // let cycle_count = state.run_server(sample_txs, update_rxs);
-//     (0, state.update_logs)
-// }
