@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display, fs, io::Write, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+};
 
 pub struct CoordListSparseMatrix<Elem: Copy + Display> {
     data: Vec<(usize, usize, Elem)>,
@@ -46,16 +49,13 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
     pub fn nnz(&self) -> usize {
         self.data.len()
     }
+}
 
-    pub fn save(&self, path: PathBuf) {
-        if path.exists() {
-            fs::remove_file(&path).unwrap();
+impl<Elem: Copy + Display> fmt::Display for CoordListSparseMatrix<Elem> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for &(i, j, e) in &self.data {
+            writeln!(f, "{},{},{}", i, j, e)?;
         }
-
-        let mut file = fs::File::create(path).unwrap();
-
-        for &(row, col, entry) in &self.data {
-            writeln!(&mut file, "{},{},{}", row, col, entry).unwrap();
-        }
+        Ok(())
     }
 }

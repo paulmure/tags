@@ -1,5 +1,4 @@
-use clap::{Parser, ValueHint};
-use std::path::PathBuf;
+use clap::Parser;
 
 use crate::simulator::Tick;
 
@@ -11,9 +10,6 @@ pub struct Args {
     /// Number of samples to use for simulation only
     #[arg(long, default_value_t = 128)]
     pub num_samples: usize,
-    /// Path to store data or update_log
-    #[arg(long, value_hint = ValueHint::FilePath)]
-    pub data_path: PathBuf,
 
     // <<<< Common args across data sets and models >>>>
     /// Model hyper parameter initial learning rate
