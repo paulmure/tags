@@ -64,3 +64,4 @@ pub fn load_netflix_dataset(n_movies: usize) -> NetflixMatrix {
 
     matrix
 }
+

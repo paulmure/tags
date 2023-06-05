@@ -1,16 +1,9 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Display},
-};
+use std::fmt::{self, Display};
 
 pub struct CoordListSparseMatrix<Elem: Copy + Display> {
     data: Vec<(usize, usize, Elem)>,
     n_rows: usize,
     n_cols: usize,
-    /// `nnz_row[u]` = number of non-zeros in row `u`
-    nnz_row: HashMap<usize, usize>,
-    /// `nnz_col[m]` = number of non-zeros in col `u`
-    nnz_col: HashMap<usize, usize>,
 }
 
 impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
@@ -19,8 +12,6 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
             data: vec![],
             n_rows: 0,
             n_cols: 0,
-            nnz_row: HashMap::new(),
-            nnz_col: HashMap::new(),
         }
     }
 
@@ -34,8 +25,6 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
 
     pub fn insert(&mut self, row: usize, col: usize, elem: Elem) {
         self.data.push((row, col, elem));
-        *self.nnz_row.entry(row).or_insert(0) += 1;
-        *self.nnz_col.entry(col).or_insert(0) += 1;
     }
 
     pub fn n_rows(&self) -> usize {

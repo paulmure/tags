@@ -1,4 +1,5 @@
-import subprocess
+from subprocess import Popen, PIPE
+from tqdm import tqdm
 
 from . import config as cf
 
@@ -18,7 +19,27 @@ def make_hogmild_args_list(config):
 
 
 def run_hogmild(config) -> str:
-    args = make_hogmild_args_list(config)
-    output = subprocess.run(args, capture_output=True)
-    output_str = output.stdout.decode("utf-8")
-    return output_str.strip()
+    cmd = make_hogmild_args_list(config)
+    p = Popen(cmd, stdout=PIPE, universal_newlines=True)
+
+    output = ""
+
+    still_loading = True
+    while still_loading:
+        byte = p.stdout.read(1)
+        if byte.isnumeric():
+            still_loading = False
+            output += byte
+            output += p.stdout.readline()
+        else:
+            print(output, end="")
+
+    print("capturing output...")
+    lines_remaining = int(output)
+    with tqdm(total=lines_remaining) as pbar:
+        for line in iter(p.stdout.readline, ""):
+            output += line
+            pbar.update(1)
+
+    p.wait()
+    return output.strip()

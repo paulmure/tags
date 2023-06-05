@@ -1,5 +1,4 @@
 import yaml
-import numpy as np
 import pandas as pd
 from io import StringIO
 
@@ -17,6 +16,7 @@ def load_default_config():
 def get_hogmild_output(config) -> tuple[int, pd.DataFrame]:
     output_str = run_hogmild(config)
 
+    print("parsing output into DataFrame...")
     first_line_idx = output_str.find("\n")
     count = int(output_str[:first_line_idx])
 
@@ -42,11 +42,18 @@ def get_update_logs(config) -> tuple[int, pd.DataFrame]:
 
 def main():
     config = load_default_config()
+    config[cf.N_MOVIES] = 17770
+    # config[cf.N_MOVIES] = 5128
 
+    print("loading data...")
     data = load_data(config)
-    config[cf.NUM_SAMPLES] = data.shape[0]
+    num_samples = data.shape[0]
+    print(f"loaded {num_samples} entries total")
 
+    print("running simulation...")
+    config[cf.NUM_SAMPLES] = num_samples
     cycle_counts, update_logs = get_update_logs(config)
+    print("simulation finished")
 
     print(data)
     print(cycle_counts)
