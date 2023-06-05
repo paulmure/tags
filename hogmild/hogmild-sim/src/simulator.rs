@@ -15,7 +15,7 @@ pub fn max_sample_time(samples: &[Sample]) -> Tick {
     samples.iter().map(|s| s.time).max().unwrap_or(Tick::MAX)
 }
 
-pub fn run_simulation(args: &'static Args, num_samples: usize) -> (Tick, Vec<Sample>) {
+pub fn run_simulation(args: &Args, num_samples: usize) -> (Tick, Vec<Sample>) {
     let mut params_server = ParamsServerState::new(args, num_samples);
     let (mut workers, mut sample_chans, mut update_chans) = (vec![], vec![], vec![]);
     for _ in 0..args.n_workers {

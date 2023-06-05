@@ -3,16 +3,12 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     fs::{read_dir, DirEntry, File},
     io::{BufRead, BufReader},
-    iter::Peekable,
     path::PathBuf,
 };
 
-use crate::{
-    data_loader::DataLoader,
-    data_structures::hash_map_spmat::{self, HashMapSparseMatrix},
-};
+use crate::data_structures::CoordListSparseMatrix;
 
-type NetflixMatrix = HashMapSparseMatrix<f32>;
+type NetflixMatrix = CoordListSparseMatrix<f32>;
 
 fn get_data_dir() -> PathBuf {
     let mut base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -30,7 +26,7 @@ fn load_one_movie(
 ) {
     let path = dir_entry.path();
 
-    let col = m.n_cols_base();
+    let col = m.n_cols();
     m.add_col();
 
     let file = File::open(path).unwrap();
@@ -47,7 +43,7 @@ fn load_one_movie(
         let row: usize = match user_to_row.entry(user_id) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                let row = m.n_rows_base();
+                let row = m.n_rows();
                 m.add_row();
                 *v.insert(row)
             }
@@ -71,32 +67,4 @@ pub fn load_netflix_dataset(n_movies: usize) -> NetflixMatrix {
 
     println!("Done!");
     m
-}
-
-pub struct NetflixDataLoader<'a> {
-    matrix: &'a NetflixMatrix,
-    iter: Peekable<hash_map_spmat::Iter<'a, f32>>,
-}
-
-impl<'a> NetflixDataLoader<'a> {
-    pub fn new(matrix: &'a NetflixMatrix) -> Self {
-        Self {
-            matrix,
-            iter: matrix.iter_base().peekable(),
-        }
-    }
-}
-
-impl<'a> DataLoader<((usize, usize), f32)> for NetflixDataLoader<'a> {
-    fn len(&self) -> usize {
-        self.matrix.nnz_base()
-    }
-
-    fn start_new_epoch(&mut self) {
-        self.iter = self.matrix.iter_base().peekable()
-    }
-
-    fn take_one(&mut self) -> Option<((usize, usize), f32)> {
-        self.iter.next()
-    }
 }

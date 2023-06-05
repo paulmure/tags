@@ -1,15 +1,19 @@
-use clap::Parser;
+use clap::{Parser, ValueHint};
+use std::path::PathBuf;
 
-use crate::sgd::schedule_simulation::Tick;
+use crate::simulator::Tick;
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    /// Only run the simulation
+    /// Run the simulation, otherwise load the data
     #[arg(long, default_value_t = false)]
-    pub simulation_only: bool,
+    pub simulation: bool,
     /// Number of samples to use for simulation only
     #[arg(long, default_value_t = 128)]
     pub num_samples: usize,
+    /// Path to store data or update_log
+    #[arg(long, value_hint = ValueHint::FilePath)]
+    pub data_path: PathBuf,
 
     // <<<< Common args across data sets and models >>>>
     /// Model hyper parameter initial learning rate
