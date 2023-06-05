@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import sys
 import matplotlib.pyplot as plt
 from pathlib import Path
