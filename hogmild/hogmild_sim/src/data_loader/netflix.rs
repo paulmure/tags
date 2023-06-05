@@ -1,4 +1,3 @@
-use indicatif::ProgressIterator;
 use std::{
     collections::{hash_map::Entry, HashMap},
     fs::{read_dir, DirEntry, File},
@@ -12,6 +11,7 @@ type NetflixMatrix = CoordListSparseMatrix<f32>;
 
 fn get_data_dir() -> PathBuf {
     let mut base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    base_dir.push("..");
     base_dir.push("..");
     base_dir.push("data");
     base_dir.push("netflix");
@@ -54,17 +54,13 @@ fn load_one_movie(
 }
 
 pub fn load_netflix_dataset(n_movies: usize) -> NetflixMatrix {
-    println!("Loading Netflix dataset with {} movies", n_movies);
-
-    let mut m = NetflixMatrix::new_empty();
+    let mut matrix = NetflixMatrix::new_empty();
     let mut user_to_row: HashMap<usize, usize> = HashMap::new();
     let paths = read_dir(get_data_dir()).unwrap();
 
     paths
         .take(n_movies)
-        .progress_count(n_movies as u64)
-        .for_each(|de| load_one_movie(de.unwrap(), &mut m, &mut user_to_row));
+        .for_each(|de| load_one_movie(de.unwrap(), &mut matrix, &mut user_to_row));
 
-    println!("Done!");
-    m
+    matrix
 }

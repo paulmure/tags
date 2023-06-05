@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, fmt};
 
 use crate::args::Args;
 
@@ -11,11 +11,49 @@ pub struct Sample {
     pub weight_version: usize,
 }
 
-pub fn max_sample_time(samples: &[Sample]) -> Tick {
-    samples.iter().map(|s| s.time).max().unwrap_or(Tick::MAX)
+pub struct UpdateLogs {
+    samples: Vec<Sample>,
 }
 
-pub fn run_simulation(args: &Args, num_samples: usize) -> (Tick, Vec<Sample>) {
+impl UpdateLogs {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            samples: Vec::with_capacity(capacity),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    fn push(&mut self, sample: Sample) {
+        self.samples.push(sample)
+    }
+
+    fn max_time(&self) -> Tick {
+        self.samples
+            .iter()
+            .map(|s| s.time)
+            .max()
+            .unwrap_or(Tick::MAX)
+    }
+
+    fn sort(&mut self) {
+        self.samples.sort_by_key(|s| s.weight_version);
+    }
+}
+
+impl fmt::Display for UpdateLogs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "SampleId,WeightVersion")?;
+        for sample in &self.samples {
+            writeln!(f, "{},{}", sample.sample_id, sample.weight_version)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn run_simulation(args: &Args, num_samples: usize) -> (Tick, UpdateLogs) {
     let mut params_server = ParamsServerState::new(args, num_samples);
     let (mut workers, mut sample_chans, mut update_chans) = (vec![], vec![], vec![]);
     for _ in 0..args.n_workers {
@@ -91,7 +129,7 @@ struct ParamsServerState<'a> {
     /// When the folding unit will be ready again
     fold_ready_at: Tick,
     /// The sequence of updates made to weights
-    update_logs: Vec<Sample>,
+    update_logs: UpdateLogs,
 }
 
 impl<'a> ParamsServerState<'a> {
@@ -105,7 +143,7 @@ impl<'a> ParamsServerState<'a> {
             bank_states: VecDeque::with_capacity(args.n_weight_banks),
             weight_version_queue: VecDeque::with_capacity(args.n_folders),
             fold_ready_at: 0,
-            update_logs: Vec::with_capacity(num_samples),
+            update_logs: UpdateLogs::with_capacity(num_samples),
         }
     }
 
@@ -228,8 +266,11 @@ impl<'a> ParamsServerState<'a> {
     }
 
     fn cleanup(&mut self) {
-        self.tick = max_sample_time(&self.update_logs);
+        self.tick = self.update_logs.max_time();
+        self.update_logs.sort();
+
         self.update_weight_version();
+
         assert!(
             self.weight_version_queue.is_empty()
                 && self.curr_weight_version == self.num_samples

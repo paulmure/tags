@@ -53,6 +53,7 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
 
 impl<Elem: Copy + Display> fmt::Display for CoordListSparseMatrix<Elem> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Row,Column,Entry")?;
         for &(i, j, e) in &self.data {
             writeln!(f, "{},{},{}", i, j, e)?;
         }

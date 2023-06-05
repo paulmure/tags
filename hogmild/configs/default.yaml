@@ -1,8 +1,10 @@
 ---
 # Only run the simulation
-simulation_only: false
+simulation: false
 # Number of samples to use for simulation only
 num_samples: 1000000
+# Whether to print the data associated with the data load or simulation
+print_data: false
 
 # <<<< Common args across data sets and models >>>>
 # Model hyper parameter initial learning rate

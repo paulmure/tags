@@ -10,22 +10,24 @@ import config as cf
 
 
 def make_hogmild_args_list(config):
-    res = [cf.HOGMILD_PATH]
-    for arg in cf.RUST_ARGS:
-        rust_flag = f"--{arg.replace('_', '-')}"
-        if type(config[arg]) == bool:
-            if arg:
+    res = [cf.HOGMILD_SIM_PATH]
+    for arg_name in cf.HOGMILD_SIM_ARGS:
+        rust_flag = f"--{arg_name.replace('_', '-')}"
+        arg_val = config[arg_name]
+        if type(config[arg_name]) == bool:
+            if arg_val:
                 res.append(rust_flag)
         else:
             res.append(rust_flag)
-            res.append(str(config[arg]))
+            res.append(str(arg_val))
     return res
 
 
 def run_simulator(config) -> str:
     args = make_hogmild_args_list(config)
     output = subprocess.run(args, capture_output=True)
-    return output.stdout.decode("utf-8")
+    output_str = output.stdout.decode("utf-8")
+    return output_str
 
 
 def parse_args():
@@ -51,7 +53,7 @@ def plot_latency(xs: list[int], xlabel: str, latencies: list[int]):
 def sweep_num_workers(max: int, step: int, config):
     workers = []
     latencies = []
-    config["simulation_only"] = True
+    config["simulation"] = True
     for i in range(0, max, step):
         n = i + 1
         config[cf.N_WORKERS] = n

@@ -1,9 +1,11 @@
 import os
 
-# Only run the simulation
-SIMULATION_ONLY = "simulation_only"
+# Run the simulation, otherwise load the data
+SIMULATION = "simulation"
 # Number of samples to use for simulation only
 NUM_SAMPLES = "num_samples"
+# Whether to print the data associated with the data load or simulation
+PRINT_DATA = "print_data"
 
 # <<<< Common args across data sets and models >>>>
 # Model hyper parameter initial learning rate
@@ -65,17 +67,11 @@ LAM_YB = "lam_yb"
 # Number of movies to load
 N_MOVIES = "n_movies"
 
-RUST_ARGS = [
-    SIMULATION_ONLY,
+HOGMILD_SIM_ARGS = [
+    SIMULATION,
     NUM_SAMPLES,
-    ALPHA_0,
-    DECAY_RATE,
-    MAX_EPOCH,
-    STOPPING_CRITERION,
-    HOGWILD,
-    MODEL,
     DATASET,
-    RNG_SEED,
+    PRINT_DATA,
     N_WEIGHT_BANKS,
     N_WORKERS,
     N_FOLDERS,
@@ -87,15 +83,11 @@ RUST_ARGS = [
     GRADIENT_LATENCY,
     FOLD_II,
     FOLD_LATENCY,
-    N_FEATURES,
-    MU,
-    LAM_XF,
-    LAM_YF,
-    LAM_XB,
-    LAM_YB,
     N_MOVIES,
 ]
 
 CWD = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.join(CWD, "..", "configs", "default.yaml")
-HOGMILD_PATH = os.path.join(CWD, "..", "target", "release", "hogmild")
+HOGMILD_SIM_PATH = os.path.join(
+    CWD, "..", "hogmild_sim", "target", "release", "hogmild_sim"
+)
