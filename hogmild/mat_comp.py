@@ -1,5 +1,6 @@
 import yaml
 import pandas as pd
+import numpy as np
 from io import StringIO
 
 from utils.hogmild_sim import run_hogmild
@@ -40,24 +41,69 @@ def get_update_logs(config) -> tuple[int, pd.DataFrame]:
     return cycle_count, df
 
 
+class SparseMatrix:
+    def __init__(self, config):
+        print("loading data...")
+        self.data = load_data(config)
+        self.shape = (self.data["Row"].max() + 1, self.data["Column"].max() + 1)
+        print(f"loaded {self.data.shape[0]} entries total, with shape {self.shape}")
+
+    def __len__(self):
+        return self.data.shape[0]
+
+
+class DataLoader:
+    def __init__(self, data: pd.DataFrame, update_logs: pd.DataFrame):
+        self.update_logs = update_logs
+        self.data = data
+        self._versions = np.sort(np.array(pd.unique(self.update_logs.WeightVersion)))
+        self._num_versions = self._versions.shape[0]
+
+    def __iter__(self):
+        self._curr_idx = 0
+        return self
+
+    def _next_samples(self) -> pd.DataFrame:
+        curr_version = self._versions[self._curr_idx]
+        curr_samples_idx = self.update_logs[
+            self.update_logs.WeightVersion == curr_version
+        ].index[0]
+
+        self._curr_idx += 1
+        if self._curr_idx < self._num_versions:
+            next_version = self._versions[self._curr_idx]
+            next_samples_idx = self.update_logs[
+                self.update_logs.WeightVersion == next_version
+            ].index[0]
+        else:
+            next_samples_idx = self.data.shape[0]
+
+        samples = self.update_logs.SampleId[curr_samples_idx:next_samples_idx]
+        return samples
+
+    def __next__(self) -> pd.DataFrame:
+        if self._curr_idx >= self._num_versions:
+            raise StopIteration
+
+        samples = self._next_samples()
+        return samples
+
+
 def main():
     config = load_default_config()
-    config[cf.N_MOVIES] = 17770
-    # config[cf.N_MOVIES] = 5128
+    # config[cf.N_MOVIES] = 17770
+    config[cf.N_MOVIES] = 8
 
-    print("loading data...")
-    data = load_data(config)
-    num_samples = data.shape[0]
-    print(f"loaded {num_samples} entries total")
+    data = SparseMatrix(config)
 
     print("running simulation...")
-    config[cf.NUM_SAMPLES] = num_samples
+    config[cf.NUM_SAMPLES] = len(data)
     cycle_counts, update_logs = get_update_logs(config)
     print("simulation finished")
 
-    print(data)
-    print(cycle_counts)
-    print(update_logs)
+    dataloader = DataLoader(data.data, update_logs)
+    for batch in dataloader:
+        print(batch)
 
 
 if __name__ == "__main__":
