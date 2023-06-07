@@ -63,7 +63,7 @@ class DataLoader:
         self._curr_idx = 0
         return self
 
-    def _next_samples(self) -> pd.DataFrame:
+    def _next_samples(self) -> np.ndarray:
         curr_version = self._versions[self._curr_idx]
         curr_samples_idx = self.update_logs[
             self.update_logs.WeightVersion == curr_version
@@ -78,15 +78,19 @@ class DataLoader:
         else:
             next_samples_idx = self.data.shape[0]
 
-        samples = self.update_logs.SampleId[curr_samples_idx:next_samples_idx]
+        samples = np.array(self.update_logs.SampleId[curr_samples_idx:next_samples_idx])
         return samples
 
-    def __next__(self) -> pd.DataFrame:
+    def __next__(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self._curr_idx >= self._num_versions:
             raise StopIteration
 
         samples = self._next_samples()
-        return samples
+        sub_df = self.data.iloc[samples]
+        xs = np.array(sub_df["Row"])
+        ys = np.array(sub_df["Column"])
+        entries = np.array(sub_df["Entry"])
+        return xs, ys, entries
 
 
 def main():
@@ -102,8 +106,8 @@ def main():
     print("simulation finished")
 
     dataloader = DataLoader(data.data, update_logs)
-    for batch in dataloader:
-        print(batch)
+    for x, y, e in dataloader:
+        print(x, y, e)
 
 
 if __name__ == "__main__":
