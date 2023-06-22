@@ -12,7 +12,7 @@ pub struct Sample {
 }
 
 pub struct UpdateLogs {
-    samples: Vec<Sample>,
+    pub samples: Vec<Sample>,
 }
 
 impl UpdateLogs {

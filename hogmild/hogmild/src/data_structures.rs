@@ -1,9 +1,15 @@
-use std::fmt::{self, Display};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+    ops::Index,
+};
 
 pub struct CoordListSparseMatrix<Elem: Copy + Display> {
     data: Vec<(usize, usize, Elem)>,
     n_rows: usize,
     n_cols: usize,
+    nnz_rows: HashMap<usize, usize>,
+    nnz_cols: HashMap<usize, usize>,
 }
 
 impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
@@ -12,6 +18,8 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
             data: vec![],
             n_rows: 0,
             n_cols: 0,
+            nnz_rows: HashMap::new(),
+            nnz_cols: HashMap::new(),
         }
     }
 
@@ -24,6 +32,8 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
     }
 
     pub fn insert(&mut self, row: usize, col: usize, elem: Elem) {
+        *self.nnz_rows.entry(row).or_default() += 1;
+        *self.nnz_cols.entry(col).or_default() += 1;
         self.data.push((row, col, elem));
     }
 
@@ -38,6 +48,18 @@ impl<Elem: Copy + Display> CoordListSparseMatrix<Elem> {
     pub fn nnz(&self) -> usize {
         self.data.len()
     }
+
+    pub fn nnz_row(&self, row: usize) -> usize {
+        self.nnz_rows.get(&row).map_or(0, |&val| val)
+    }
+
+    pub fn nnz_col(&self, col: usize) -> usize {
+        self.nnz_cols.get(&col).map_or(0, |&val| val)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<(usize, usize, Elem)> {
+        self.data.iter()
+    }
 }
 
 impl<Elem: Copy + Display> fmt::Display for CoordListSparseMatrix<Elem> {
@@ -47,5 +69,15 @@ impl<Elem: Copy + Display> fmt::Display for CoordListSparseMatrix<Elem> {
             writeln!(f, "{},{},{}", i, j, e)?;
         }
         Ok(())
+    }
+}
+
+impl<Elem> Index<usize> for CoordListSparseMatrix<Elem>
+where
+    Elem: Copy + Display,
+{
+    type Output = (usize, usize, Elem);
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
     }
 }

@@ -1,10 +1,14 @@
-import time
+import copy
 import yaml
 import argparse
 import matplotlib.pyplot as plt
+from multiprocessing import Pool
+from tqdm import tqdm
+import pickle
+from collections import namedtuple
 
-from utils.hogmild_sim import run_hogmild
-import utils.config as cf
+from hogmild import run_hogmild
+import config as cf
 
 
 def parse_args():
@@ -27,39 +31,37 @@ def plot_latency(xs: list[int], xlabel: str, latencies: list[int]):
     plt.show()
 
 
+TestResult = namedtuple("TestResult", "n_workers cycles history")
+
+
+def test_worker(config) -> TestResult:
+    n_workers = config[cf.N_WORKERS]
+    cycles, history = run_hogmild(config)
+    return TestResult(n_workers, cycles, history)
+
+
 def sweep_num_workers(max: int, step: int, config):
-    workers = []
-    latencies = []
-    config["simulation"] = True
+    config["simulation"] = False
+    configs = []
     for i in range(0, max, step):
         n = i + 1
         config[cf.N_WORKERS] = n
         config[cf.N_WEIGHT_BANKS] = n
         config[cf.N_FOLDERS] = n
+        configs.append(copy.deepcopy(config))
 
-        start_time = time.time()
-        output = run_hogmild(config)
-        end_time = time.time()
-        runtime = end_time - start_time
+    with Pool() as pool:
+        results = list(tqdm(pool.imap(test_worker, configs), total=len(configs)))
 
-        latency = int(output)
-        print(
-            f"{n:>02d} workers,",
-            f"CPU: {runtime:.2f} seconds,",
-            f"RDU: {latency} cycles",
-        )
-
-        workers.append(n)
-        latencies.append(latency)
-
-    plot_latency(workers, "nWorkers", latencies)
+    with open("sweep_workers.p", "wb") as f:
+        pickle.dump(results, f)
 
 
 def main():
     args = parse_args()
     with open(args.config_path, "r") as f:
         config = yaml.safe_load(f)
-    sweep_num_workers(256, 1, config)
+    sweep_num_workers(32, 1, config)
 
 
 if __name__ == "__main__":

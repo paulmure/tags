@@ -52,15 +52,15 @@ fold_latency: 32
 # Number of features in the decomposition matrix
 n_features: 16
 # Model hyper parameter mu
-mu: 1
+mu: 0.1
 # Model hyper parameter lambda_xf
-lam_xf: 1
+lam_xf: 0.1
 # Model hyper parameter lambda_yf
-lam_yf: 1
+lam_yf: 0.1
 # Model hyper parameter lambda_xb
-lam_xb: 1
+lam_xb: 0.1
 # Model hyper parameter lambda_yb
-lam_yb: 1
+lam_yb: 0.1
 
 # <<<< Netflix dataset specific >>>>
 # Number of movies to load
